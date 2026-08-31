@@ -3,7 +3,7 @@ import cors from 'cors';
 import fs from 'node:fs';
 import path from 'node:path';
 
-import { ROOT, migrar, um, usandoTurso } from './db.js';
+import { emServerless, migrar, ROOT, um, usandoTurso } from './db.js';
 import { lookupsRouter } from './routes/lookups.js';
 import { ocorrenciasRouter } from './routes/ocorrencias.js';
 import { taRouter } from './routes/ta.js';
@@ -59,19 +59,24 @@ app.use((req, _res, next) => {
   next();
 });
 
-// Garante o banco pronto antes de qualquer rota da API
-app.use('/api', (_req, _res, next) => {
-  prepararBanco().then(() => next(), next);
-});
-
+/* Diagnostico. Fica ANTES do preparo do banco de proposito: quando algo
+   esta errado na configuracao, esta e a rota que ainda responde e conta
+   o que o servidor esta enxergando. */
 app.get('/api/health', (_req, res) => {
   res.json({
     ok: true,
     servico: 'API Controle de Manutencao',
     versao: '1.1.0',
-    banco: usandoTurso ? 'turso' : 'arquivo local',
-    hora: new Date().toISOString(),
+    banco: usandoTurso ? 'turso' : emServerless ? 'NAO CONFIGURADO' : 'arquivo local',
+    serverless: emServerless,
+    fuso_horario: process.env.FUSO_HORARIO ?? '-3 (padrao)',
+    hora_servidor: new Date().toISOString(),
   });
+});
+
+// Garante o banco pronto antes das demais rotas da API
+app.use('/api', (_req, _res, next) => {
+  prepararBanco().then(() => next(), next);
 });
 
 app.use('/api/lookups', lookupsRouter);
@@ -101,6 +106,16 @@ app.use('/api', (_req, res) => {
 /* Tratamento de erro central */
 app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
   console.error('[erro]', err);
+
+  // Falta de configuracao nao e defeito do servidor: e 503 e a mensagem
+  // precisa aparecer mesmo em producao, senao vira um erro mudo.
+  const configuracao = /nao configurad|FUSO_HORARIO invalido|Migracao .* nao encontrada/i.test(
+    err.message,
+  );
+  if (configuracao) {
+    return res.status(503).json({ erro: err.message });
+  }
+
   res.status(500).json({
     erro: 'Erro interno no servidor',
     detalhe: process.env.NODE_ENV === 'production' ? undefined : err.message,

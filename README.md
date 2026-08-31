@@ -100,6 +100,19 @@ O banco sobe com os dados de exemplo. Quando cadastrar as máquinas de verdade:
 2. Mude `SEED_ON_EMPTY` para `false` e faça um novo deploy — assim, se um dia o banco
    ficar vazio, o sistema não volta a inventar dados.
 
+### Se algo der errado: `/api/health`
+
+Essa rota responde **sem tocar no banco**, de propósito. Abra
+`https://seu-site/api/health` e ela conta o que o servidor está enxergando:
+
+```json
+{ "ok": true, "banco": "turso", "serverless": true, "fuso_horario": "-3" }
+```
+
+- `"banco": "turso"` → configurado certo.
+- `"banco": "NAO CONFIGURADO"` → faltam `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN`.
+  As demais rotas vão responder **503** com essa mesma explicação.
+
 ### Por que `FUSO_HORARIO` existe
 
 Servidor na nuvem roda em UTC. Sem esse ajuste, um chamado aberto às 14h apareceria como 17h.

@@ -1,5 +1,5 @@
 import type { InStatement } from '@libsql/client';
-import { agora, db, todos } from './db.js';
+import { agora, emLote, todos } from './db.js';
 
 /* ---------------------------------------------------------------------
  * Dados de exemplo para a aplicacao ja abrir com graficos preenchidos.
@@ -113,18 +113,17 @@ export async function popularBaseDeExemplo(): Promise<void> {
       args: [nome, mat, esp, agora()],
     });
   }
-  await db.batch(cadastros, 'write');
+  await emLote(cadastros);
 
   /* -------- Maquinas (dependem dos setores) -------- */
   const setores = await todos<{ id: number; nome: string }>('SELECT id, nome FROM setores');
   const idSetor = (nome: string) => setores.find((s) => s.nome === nome)?.id ?? null;
 
-  await db.batch(
+  await emLote(
     MAQUINAS.map(([codigo, nome, setor, crit]) => ({
       sql: 'INSERT OR IGNORE INTO maquinas (codigo, nome, setor_id, criticidade, criado_em) VALUES (?,?,?,?,?)',
       args: [codigo, nome, idSetor(setor), crit, agora()],
     })),
-    'write',
   );
 
   /* -------- Ocorrencias -------- */
@@ -258,6 +257,6 @@ export async function popularBaseDeExemplo(): Promise<void> {
   // Em lotes: mandar 186 comandos numa tacada so estoura o limite do Turso.
   const LOTE = 50;
   for (let i = 0; i < ocorrencias.length; i += LOTE) {
-    await db.batch(ocorrencias.slice(i, i + LOTE), 'write');
+    await emLote(ocorrencias.slice(i, i + LOTE));
   }
 }

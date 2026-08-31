@@ -1,4 +1,4 @@
-import { createClient, type InArgs, type Row } from '@libsql/client';
+import type { Client, InArgs, InStatement, Row } from '@libsql/client';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -67,6 +67,16 @@ export function diaISO(diasAtras = 0): string {
  * ------------------------------------------------------------------ */
 const URL_TURSO = process.env.TURSO_DATABASE_URL?.trim();
 
+export const usandoTurso = Boolean(URL_TURSO);
+
+/** Estamos rodando como funcao serverless (Netlify, Vercel, Lambda)? */
+export const emServerless = Boolean(
+  process.env.NETLIFY ||
+    process.env.VERCEL ||
+    process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    process.env.LAMBDA_TASK_ROOT,
+);
+
 function urlDoArquivoLocal(): string {
   const arquivo = path.resolve(ROOT, process.env.DB_FILE || 'data/manutencao.db');
   fs.mkdirSync(path.dirname(arquivo), { recursive: true });
@@ -74,12 +84,53 @@ function urlDoArquivoLocal(): string {
   return `file:${arquivo.replace(/\\/g, '/')}`;
 }
 
-export const usandoTurso = Boolean(URL_TURSO);
+/* ---------------------------------------------------------------------
+ * Cliente
+ *
+ * Sao dois clientes diferentes dentro do mesmo pacote:
+ *
+ *   @libsql/client/web  -> so fetch, nenhum binario nativo
+ *   @libsql/client      -> tambem abre arquivo local, e para isso carrega
+ *                          um binario compilado por sistema operacional
+ *
+ * Numa funcao serverless o segundo quebra: o package-lock e gerado na
+ * maquina de quem desenvolve (Windows, aqui) e nao registra a variante
+ * de Linux, entao o modulo @libsql/linux-x64-gnu nao existe la e a funcao
+ * morre ao carregar - o famoso 502 sem explicacao.
+ *
+ * Como na nuvem falamos com o Turso por HTTP, o cliente web basta. O
+ * cliente nativo so e importado quando realmente vamos abrir um arquivo,
+ * e por isso o import e dinamico: assim ele nem chega a ser avaliado em
+ * producao.
+ * ------------------------------------------------------------------ */
+let clientePromise: Promise<Client> | null = null;
 
-export const db = createClient({
-  url: URL_TURSO || urlDoArquivoLocal(),
-  authToken: process.env.TURSO_AUTH_TOKEN,
-});
+async function criarCliente(): Promise<Client> {
+  if (URL_TURSO) {
+    const { createClient } = await import('@libsql/client/web');
+    return createClient({ url: URL_TURSO, authToken: process.env.TURSO_AUTH_TOKEN });
+  }
+
+  if (emServerless) {
+    throw new Error(
+      'Banco de dados nao configurado. Defina TURSO_DATABASE_URL e TURSO_AUTH_TOKEN ' +
+        'nas variaveis de ambiente do projeto. Arquivo SQLite local nao funciona aqui, ' +
+        'porque o disco da funcao e apagado a cada execucao.',
+    );
+  }
+
+  const { createClient } = await import('@libsql/client');
+  return createClient({ url: urlDoArquivoLocal() });
+}
+
+/** Conexao compartilhada, criada na primeira consulta. */
+export function cliente(): Promise<Client> {
+  clientePromise ??= criarCliente().catch((err) => {
+    clientePromise = null; // permite nova tentativa na proxima requisicao
+    throw err;
+  });
+  return clientePromise;
+}
 
 /* ---------------------------------------------------------------------
  * Helpers de consulta
@@ -98,7 +149,7 @@ function paraObjeto<T>(linha: Row, colunas: string[]): T {
 
 /** Executa e devolve todas as linhas. */
 export async function todos<T = Record<string, any>>(sql: string, args: InArgs = []): Promise<T[]> {
-  const r = await db.execute({ sql, args });
+  const r = await (await cliente()).execute({ sql, args });
   return r.rows.map((linha) => paraObjeto<T>(linha, r.columns));
 }
 
@@ -107,7 +158,7 @@ export async function um<T = Record<string, any>>(
   sql: string,
   args: InArgs = [],
 ): Promise<T | undefined> {
-  const r = await db.execute({ sql, args });
+  const r = await (await cliente()).execute({ sql, args });
   const linha = r.rows[0];
   return linha ? paraObjeto<T>(linha, r.columns) : undefined;
 }
@@ -117,8 +168,13 @@ export async function rodar(
   sql: string,
   args: InArgs = [],
 ): Promise<{ alteradas: number; id: number }> {
-  const r = await db.execute({ sql, args });
+  const r = await (await cliente()).execute({ sql, args });
   return { alteradas: Number(r.rowsAffected), id: Number(r.lastInsertRowid ?? 0) };
+}
+
+/** Executa varios comandos numa transacao so (usado pela carga de exemplo). */
+export async function emLote(comandos: InStatement[]): Promise<void> {
+  await (await cliente()).batch(comandos, 'write');
 }
 
 /* ---------------------------------------------------------------------
@@ -181,7 +237,8 @@ export function migrar(): Promise<void> {
   // Em serverless varias requisicoes podem chegar juntas na primeira
   // subida; uma promessa compartilhada evita rodar a migracao em paralelo.
   migracaoEmAndamento ??= (async () => {
-    await db.execute(`CREATE TABLE IF NOT EXISTS _migrations (
+    const conexao = await cliente();
+    await conexao.execute(`CREATE TABLE IF NOT EXISTS _migrations (
       arquivo     TEXT PRIMARY KEY,
       aplicado_em TEXT NOT NULL
     )`);
@@ -202,7 +259,7 @@ export function migrar(): Promise<void> {
 
       for (const comando of separarComandos(aplicarFuso(fs.readFileSync(caminho, 'utf8')))) {
         try {
-          await db.execute(comando);
+          await conexao.execute(comando);
         } catch (err) {
           const msg = String((err as Error).message).toLowerCase();
           if (JA_APLICADO.some((p) => msg.includes(p))) continue;
