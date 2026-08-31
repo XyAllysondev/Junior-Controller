@@ -12,7 +12,7 @@
  * ------------------------------------------------------------------ */
 
 import { ErroApi } from './api';
-import { bancoVazio, type Banco, type Registro } from './calculos';
+import { bancoVazio, normalizar, type Banco, type Registro } from './calculos';
 import type { Armazem } from './armazem';
 
 const URL_BASE = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(/\/+$/, '');
@@ -101,6 +101,23 @@ async function requisicao(caminho: string, init?: RequestInit): Promise<any> {
   return corpo;
 }
 
+/**
+ * Datas do Postgres chegam como "2026-08-29T08:00:00.123", enquanto o
+ * resto do sistema usa "2026-08-29 08:00:00". Misturar os dois quebra as
+ * comparações de texto: o espaço vem antes do "T" na tabela de
+ * caracteres, então 08:12 pareceria anterior a 08:00. Padronizamos aqui,
+ * na entrada, para nada depois precisar se preocupar com isso.
+ */
+const CAMPOS_DATA = ['aberto_em', 'atendido_em', 'fim_em', 'criado_em', 'atualizado_em'] as const;
+
+function padronizarDatas(linha: Registro): Registro {
+  const saida = { ...linha };
+  for (const campo of CAMPOS_DATA) {
+    if (campo in saida) saida[campo] = normalizar(saida[campo]);
+  }
+  return saida;
+}
+
 export const armazemSupabase: Armazem = {
   rotulo: 'Supabase',
 
@@ -114,7 +131,7 @@ export const armazemSupabase: Armazem = {
 
     const banco = bancoVazio();
     TABELAS_TODAS.forEach((tabela, i) => {
-      (banco as any)[tabela] = respostas[i] ?? [];
+      (banco as any)[tabela] = (respostas[i] ?? []).map(padronizarDatas);
     });
     return banco;
   },
@@ -125,7 +142,7 @@ export const armazemSupabase: Armazem = {
       headers: { Prefer: 'return=representation' },
       body: JSON.stringify(dados),
     });
-    return linhas?.[0] ?? dados;
+    return padronizarDatas(linhas?.[0] ?? dados);
   },
 
   async atualizar(tabela, id, dados) {
@@ -135,7 +152,7 @@ export const armazemSupabase: Armazem = {
       body: JSON.stringify(dados),
     });
     if (!linhas?.length) throw new ErroApi('Registro não encontrado', 404);
-    return linhas[0];
+    return padronizarDatas(linhas[0]);
   },
 
   async excluir(tabela, id) {

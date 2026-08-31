@@ -103,10 +103,17 @@ export function turnoDoHorario(banco: Banco, dataHora: string | null): number | 
 }
 
 export function validarLinhaDoTempo(
-  aberto: string | null,
-  atendido: string | null,
-  fim: string | null,
+  bruto_aberto: string | null,
+  bruto_atendido: string | null,
+  bruto_fim: string | null,
 ): string | null {
+  // Padroniza antes de comparar: "2026-08-29T08:00" e "2026-08-29 08:00"
+  // representam o mesmo instante, mas como texto o espaço vem antes do
+  // "T" — e a comparação daria o contrário do esperado.
+  const aberto = normalizar(bruto_aberto);
+  const atendido = normalizar(bruto_atendido);
+  const fim = normalizar(bruto_fim);
+
   if (atendido && aberto && atendido < aberto) {
     return 'O início do atendimento não pode ser anterior à abertura do chamado.';
   }
