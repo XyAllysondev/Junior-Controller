@@ -3,10 +3,28 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
+/**
+ * Pasta deste arquivo.
+ *
+ * Rodando como ESM (local), vem de import.meta.url. Quando o empacotador
+ * da nuvem gera CommonJS, import.meta vira um objeto vazio - por isso a
+ * checagem antes de converter. Nesse caso caimos no diretorio de trabalho,
+ * e a busca dos .sql mais abaixo cobre o resto.
+ */
+const PASTA_DESTE_ARQUIVO = (() => {
+  const url = (import.meta as { url?: string } | undefined)?.url;
+  if (typeof url === 'string' && url.length > 0) {
+    try {
+      return path.dirname(fileURLToPath(url));
+    } catch {
+      /* url em formato inesperado: usa o fallback */
+    }
+  }
+  return process.cwd();
+})();
 
 /** Raiz da pasta backend/ (src/.. -> backend) */
-export const ROOT = path.resolve(__dirname, '..');
+export const ROOT = path.resolve(PASTA_DESTE_ARQUIVO, '..');
 
 /* ---------------------------------------------------------------------
  * Fuso horario
@@ -127,16 +145,30 @@ function aplicarFuso(sql: string): string {
 }
 
 /**
- * Onde os .sql podem estar. Rodando local, ficam ao lado do codigo. Numa
- * funcao serverless o codigo e empacotado e os arquivos vao para a raiz
- * da tarefa, entao vale procurar tambem a partir do cwd.
+ * Onde os .sql podem estar.
+ *
+ * Rodando local, ficam ao lado do codigo. Ja numa funcao serverless o
+ * codigo e empacotado num arquivo unico e os .sql sao copiados a parte
+ * (includeFiles na Vercel, included_files na Netlify) - e cada plataforma
+ * escolhe um layout diferente. Em vez de apostar num, procuramos em todos.
  */
 function candidatosSql(arquivo: string): string[] {
-  return [
-    path.join(ROOT, 'sql', arquivo),
-    path.join(process.cwd(), 'backend', 'sql', arquivo),
-    path.join(process.cwd(), 'sql', arquivo),
+  const bases = [
+    ROOT, // backend/ (execucao local)
+    process.cwd(), // raiz da tarefa na nuvem
+    path.join(process.cwd(), 'backend'),
+    PASTA_DESTE_ARQUIVO, // pasta do bundle
+    path.join(PASTA_DESTE_ARQUIVO, '..'),
+    path.join(PASTA_DESTE_ARQUIVO, '..', '..'),
+    path.join(PASTA_DESTE_ARQUIVO, '..', '..', 'backend'),
   ];
+
+  const caminhos = bases.flatMap((base) => [
+    path.join(base, 'sql', arquivo),
+    path.join(base, 'backend', 'sql', arquivo),
+  ]);
+
+  return [...new Set(caminhos)];
 }
 
 function acharSql(arquivo: string): string | null {

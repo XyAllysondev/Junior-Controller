@@ -42,13 +42,14 @@ exemplo, para as telas já abrirem com gráficos preenchidos.
 
 ---
 
-## Publicar na Vercel
+## Publicar (Vercel ou Netlify)
 
-O deploy tem duas partes: **o banco** (Turso) e **o site** (Vercel).
+O projeto está configurado para as duas — escolha uma. Em qualquer caso, o passo 1 (banco)
+é obrigatório: as duas rodam funções em disco efêmero, onde um arquivo SQLite seria apagado.
 
 ### 1. Criar o banco no Turso
 
-Não dá para usar arquivo SQLite na Vercel: as funções rodam em disco efêmero e tudo que for
+Não dá para usar arquivo SQLite nessas plataformas: as funções rodam em disco efêmero e tudo que for
 gravado desaparece. O Turso resolve isso hospedando o mesmo SQLite — nenhuma consulta do
 projeto precisou ser reescrita.
 
@@ -63,12 +64,23 @@ turso db tokens create manutencao-capricche   # -> eyJhbGciOi...
 
 Guarde os dois valores.
 
-### 2. Configurar o projeto na Vercel
+### 2a. Vercel
 
-Ao importar o repositório, deixe as configurações de build como estão — o `vercel.json`
-já define tudo (comando de build, pasta de saída e a função da API).
+> **Atenção ao Diretório Raiz.** A Vercel detecta o Express e sugere `backend` — isso quebra
+> o deploy, porque ela passa a procurar o `vercel.json` dentro dessa pasta e ignora o `api/`
+> e o `frontend/`. Em **Diretório Raiz**, clique em *Editar* e deixe a **raiz do repositório**
+> (`./`).
 
-Em **Settings → Environment Variables**, adicione:
+Deixe as configurações de build como estão: o `vercel.json` já define o comando
+(`npm run build --workspace frontend`), a pasta de saída (`frontend/dist`) e a função da API.
+
+### 2b. Netlify
+
+Ao importar, a Netlify lê o `netlify.toml` e já preenche tudo: comando de build, pasta
+publicada (`frontend/dist`) e a pasta de funções (`netlify/functions`). Não é preciso mexer
+em nada na tela de importação.
+
+### 3. Variáveis de ambiente (nas duas)
 
 | Chave | Valor |
 |---|---|
@@ -77,9 +89,10 @@ Em **Settings → Environment Variables**, adicione:
 | `FUSO_HORARIO` | `-3` (horário de Brasília) |
 | `SEED_ON_EMPTY` | `true` no primeiro deploy; depois troque para `false` |
 
-Clique em **Deploy**.
+Não leve `PORT`, `DB_FILE` nem `CORS_ORIGIN` para produção: as duas primeiras são ignoradas
+quando o Turso está configurado, e a terceira aponta para `localhost`.
 
-### 3. Depois do primeiro deploy
+### 4. Depois do primeiro deploy
 
 O banco sobe com os dados de exemplo. Quando cadastrar as máquinas de verdade:
 
@@ -136,13 +149,16 @@ Só entram no cálculo de horas paradas as ocorrências com **"A produção fico
 Junior-Controller/
 ├── api/
 │   └── [[...slug]].ts         função da Vercel: repassa tudo para o Express
+├── netlify/
+│   └── functions/api.ts       função da Netlify: mesmo app, formato Lambda
 ├── backend/
 │   ├── src/
-│   │   ├── app.ts             monta o Express (usado local e na Vercel)
+│   │   ├── app.ts             monta o Express (usado local e nas duas nuvens)
 │   │   ├── server.ts          abre a porta (só no modo local)
 │   │   ├── db.ts              conexão, migrações, fuso e helpers de consulta
 │   │   ├── rota.ts            embrulha handlers async para o Express 4
-│   │   ├── seed.ts            dados de exemplo (npm run seed)
+│   │   ├── seed.ts            dados de exemplo (módulo puro)
+│   │   ├── seed-cli.ts        script do npm run seed
 │   │   └── routes/
 │   │       ├── lookups.ts     CRUD genérico dos 5 cadastros
 │   │       ├── ocorrencias.ts lista com filtros + ciclo de vida do chamado
@@ -159,7 +175,8 @@ Junior-Controller/
 │       ├── components/        Layout, ui, Filtros, Indicador, gráficos, formulário
 │       └── lib/               api, formato, hooks, dados, visual
 ├── package.json               workspaces + scripts
-├── vercel.json                configuração do deploy
+├── vercel.json                configuração do deploy na Vercel
+├── netlify.toml               configuração do deploy na Netlify
 └── iniciar.bat                atalho para subir tudo no Windows
 ```
 

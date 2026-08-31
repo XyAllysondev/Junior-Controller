@@ -1,8 +1,5 @@
-import 'dotenv/config';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
 import type { InStatement } from '@libsql/client';
-import { agora, db, migrar, todos, um } from './db.js';
+import { agora, db, todos } from './db.js';
 
 /* ---------------------------------------------------------------------
  * Dados de exemplo para a aplicacao ja abrir com graficos preenchidos.
@@ -263,14 +260,4 @@ export async function popularBaseDeExemplo(): Promise<void> {
   for (let i = 0; i < ocorrencias.length; i += LOTE) {
     await db.batch(ocorrencias.slice(i, i + LOTE), 'write');
   }
-}
-
-/* Execucao direta: npm run seed */
-const esteArquivo = fileURLToPath(import.meta.url);
-const chamado = process.argv[1] ? path.resolve(process.argv[1]) : '';
-if (chamado && path.resolve(esteArquivo) === chamado) {
-  await migrar();
-  await popularBaseDeExemplo();
-  const linha = await um<{ n: number }>('SELECT COUNT(*) AS n FROM ocorrencias');
-  console.log(`[seed] pronto - ${linha?.n ?? 0} ocorrencias no banco.`);
 }

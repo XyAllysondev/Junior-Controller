@@ -9,7 +9,7 @@
     "dev": "tsx watch src/server.ts",
     "build": "tsc -p tsconfig.json",
     "start": "node dist/server.js",
-    "seed": "tsx src/seed.ts",
+    "seed": "tsx src/seed-cli.ts",
     "reset": "node -e \"require('fs').rmSync('data',{recursive:true,force:true})\" && npm run seed"
   },
   "dependencies": {
@@ -17,6 +17,7 @@
     "cors": "^2.8.5",
     "dotenv": "^17.2.1",
     "express": "^4.21.2",
+    "serverless-http": "^4.0.0",
     "zod": "^3.24.1"
   },
   "devDependencies": {

@@ -1,0 +1,30 @@
+# ---------------------------------------------------------------------
+# Netlify - Capricche / Manutencao Eletrica
+#
+# O site e o Vite compilado; a API e uma unica funcao que embrulha o
+# mesmo app Express usado no desenvolvimento.
+# ---------------------------------------------------------------------
+
+[build]
+  command  = "npm run build --workspace frontend"
+  publish  = "frontend/dist"
+  functions = "netlify/functions"
+
+[functions]
+  node_bundler = "esbuild"
+  # Os .sql das migracoes nao sao importados por codigo, entao precisam
+  # ser copiados explicitamente para dentro do pacote da funcao.
+  included_files = ["backend/sql/**"]
+
+# /api/... -> funcao (status 200 = reescrita, a URL no navegador nao muda)
+[[redirects]]
+  from   = "/api/*"
+  to     = "/.netlify/functions/api/:splat"
+  status = 200
+  force  = true
+
+# Qualquer outra rota devolve o index.html (aplicacao de pagina unica)
+[[redirects]]
+  from   = "/*"
+  to     = "/index.html"
+  status = 200
