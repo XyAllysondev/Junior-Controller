@@ -10,6 +10,15 @@
   publish  = "frontend/dist"
   functions = "netlify/functions"
 
+[build.environment]
+  # A Netlify varre o resultado do build procurando valores de variaveis de
+  # ambiente e derruba o deploy se achar algum. As duas variaveis abaixo
+  # sao publicas por natureza: o Vite embute qualquer VITE_* no JavaScript
+  # que vai para o navegador, e a chave "publishable" do Supabase existe
+  # justamente para ficar exposta - quem protege os dados sao as politicas
+  # (RLS) do banco. Sem esta linha, o build falha com "Secrets detected".
+  SECRETS_SCAN_OMIT_KEYS = "VITE_SUPABASE_URL,VITE_SUPABASE_KEY"
+
 [functions]
   node_bundler = "esbuild"
   # Os .sql das migracoes nao sao importados por codigo, entao precisam
