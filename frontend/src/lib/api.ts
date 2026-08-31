@@ -54,14 +54,75 @@ function query(params: Record<string, unknown> = {}): string {
   return s ? `?${s}` : '';
 }
 
+/* ---------------------------------------------------------------------
+ * Onde os dados moram
+ *
+ *   supabase  -> banco na nuvem, compartilhado entre todos os aparelhos.
+ *                Liga sozinho quando VITE_SUPABASE_URL e VITE_SUPABASE_KEY
+ *                estao definidas. É o modo de produção.
+ *   navegador -> localStorage deste aparelho. Não precisa de nada, mas
+ *                cada pessoa tem a sua própria cópia.
+ *   servidor  -> fala com a API em /api (backend Express). Só com
+ *                VITE_MODO=servidor.
+ *
+ * Nos três casos as telas chamam as mesmas rotas.
+ * ------------------------------------------------------------------ */
+const TEM_SUPABASE = Boolean(
+  import.meta.env.VITE_SUPABASE_URL && import.meta.env.VITE_SUPABASE_KEY,
+);
+
+export const MODO_SERVIDOR = (import.meta.env.VITE_MODO as string) === 'servidor';
+export const MODO_SUPABASE = !MODO_SERVIDOR && TEM_SUPABASE;
+/** Dados só neste aparelho: é quando o backup por arquivo faz sentido. */
+export const MODO_NAVEGADOR = !MODO_SERVIDOR && !TEM_SUPABASE;
+
+export const NOME_DO_MODO = MODO_SERVIDOR
+  ? 'conectado ao servidor'
+  : MODO_SUPABASE
+    ? 'dados sincronizados na nuvem'
+    : 'dados salvos neste navegador';
+
+/* Imports dinâmicos de propósito: evitam ciclo com este arquivo e mantêm
+   fora do pacote inicial o armazém que não for usado. */
+let armazemPromise: Promise<import('./armazem').Armazem> | null = null;
+
+function obterArmazem() {
+  armazemPromise ??= MODO_SUPABASE
+    ? import('./armazemSupabase').then((m) => m.armazemSupabase)
+    : import('./armazem').then((m) => m.armazemNavegador);
+  return armazemPromise;
+}
+
+async function semServidor<T>(
+  metodo: 'GET' | 'POST' | 'PUT' | 'DELETE',
+  caminho: string,
+  params: Record<string, unknown> = {},
+  corpo: Record<string, unknown> = {},
+): Promise<T> {
+  const [{ rotear }, armazem] = await Promise.all([import('./roteador'), obterArmazem()]);
+  return (await rotear(armazem, metodo, caminho, params, corpo)) as T;
+}
+
 export const api = {
   get: <T>(caminho: string, params?: Record<string, unknown>) =>
-    requisicao<T>(`${caminho}${query(params)}`),
+    MODO_SERVIDOR
+      ? requisicao<T>(`${caminho}${query(params)}`)
+      : semServidor<T>('GET', caminho, params ?? {}),
+
   post: <T>(caminho: string, corpo?: unknown) =>
-    requisicao<T>(caminho, { method: 'POST', body: JSON.stringify(corpo ?? {}) }),
+    MODO_SERVIDOR
+      ? requisicao<T>(caminho, { method: 'POST', body: JSON.stringify(corpo ?? {}) })
+      : semServidor<T>('POST', caminho, {}, (corpo ?? {}) as Record<string, unknown>),
+
   put: <T>(caminho: string, corpo: unknown) =>
-    requisicao<T>(caminho, { method: 'PUT', body: JSON.stringify(corpo) }),
-  del: <T>(caminho: string) => requisicao<T>(caminho, { method: 'DELETE' }),
+    MODO_SERVIDOR
+      ? requisicao<T>(caminho, { method: 'PUT', body: JSON.stringify(corpo) })
+      : semServidor<T>('PUT', caminho, {}, (corpo ?? {}) as Record<string, unknown>),
+
+  del: <T>(caminho: string) =>
+    MODO_SERVIDOR
+      ? requisicao<T>(caminho, { method: 'DELETE' })
+      : semServidor<T>('DELETE', caminho),
 };
 
 /* ------------------------------------------------------------------ */

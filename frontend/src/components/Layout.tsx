@@ -3,6 +3,7 @@ import { NavLink, useLocation } from 'react-router-dom';
 import { ClipboardList, Database, Gauge, Menu, Moon, Sun, Timer, X } from 'lucide-react';
 import { cx } from './ui';
 import { useTema } from '../lib/hooks';
+import { NOME_DO_MODO } from '../lib/api';
 
 const MENU = [
   { para: '/', rotulo: 'Painel', descricao: 'Indicadores e gráficos', icone: Gauge },
@@ -202,7 +203,8 @@ export function Layout({ children }: { children: ReactNode }) {
         </main>
 
         <footer className="border-t border-slate-200 px-6 py-4 text-center text-xs text-slate-400 dark:border-slate-800 dark:text-slate-500">
-          Capricche · Manutenção Elétrica — dados lidos em tempo real do banco local
+          Capricche · Manutenção Elétrica —{' '}
+          {NOME_DO_MODO}
         </footer>
       </div>
     </div>

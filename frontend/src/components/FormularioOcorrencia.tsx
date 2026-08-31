@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { Save } from 'lucide-react';
 import {
+  Alerta,
   AreaTexto,
   Botao,
   Campo,
@@ -227,6 +228,14 @@ export function FormularioOcorrencia({
       }
     >
       <form id="form-ocorrencia" onSubmit={enviar} className="space-y-6" noValidate>
+        {maquinas.length === 0 && (
+          <Alerta tom="alerta" titulo="Nenhuma máquina cadastrada">
+            Não dá para registrar uma parada sem saber de qual máquina ela é. Vá em{' '}
+            <strong>Cadastros → Setores</strong>, crie os setores da fábrica, depois em{' '}
+            <strong>Cadastros → Máquinas</strong> cadastre os equipamentos. Aí volte aqui.
+          </Alerta>
+        )}
+
         {/* ---------------- O que aconteceu ---------------- */}
         <div className="space-y-4">
           <h3 className="text-xs font-bold tracking-wide text-slate-500 uppercase dark:text-slate-400">

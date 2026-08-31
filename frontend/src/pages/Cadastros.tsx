@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 
 import { TituloPagina } from '../components/Layout';
+import { GerenciarDados } from '../components/GerenciarDados';
 import {
   Alerta,
   Botao,
@@ -26,7 +27,7 @@ import {
   Selecao,
   useAviso,
 } from '../components/ui';
-import { api, ErroApi } from '../lib/api';
+import { api, ErroApi, MODO_NAVEGADOR } from '../lib/api';
 import { useLookups } from '../lib/dados';
 import { TOM_CRITICIDADE } from '../lib/visual';
 
@@ -483,6 +484,8 @@ export function Cadastros() {
           </div>
         )}
       </Cartao>
+
+      {MODO_NAVEGADOR && <GerenciarDados aoMudar={recarregar} />}
 
       {/* ------------------------- Formulário ------------------------- */}
       <Modal

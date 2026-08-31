@@ -3,9 +3,9 @@
 Sistema web para registrar paradas de máquina, acompanhar o tempo de atendimento por turno
 e medir os indicadores clássicos de manutenção (MTTR, MTBF e disponibilidade).
 
-- **Backend:** Node + TypeScript + Express
-- **Banco:** SQLite — arquivo local no desenvolvimento, [Turso](https://turso.tech) na nuvem
 - **Frontend:** React + Vite + TypeScript + Tailwind CSS 4 + Recharts
+- **Dados:** no navegador (padrão, sem servidor) ou em banco SQLite/[Turso](https://turso.tech) pela API
+- **Backend (opcional):** Node + TypeScript + Express
 - **Idioma:** tudo em português, incluindo os nomes das rotas e das colunas
 
 ---
@@ -26,98 +26,82 @@ cp backend/.env.example backend/.env   # PowerShell: Copy-Item backend\.env.exam
 
 O projeto usa **workspaces do npm**: um `npm install` na raiz já instala backend e frontend.
 
-Depois, em dois terminais:
+Depois:
 
 ```bash
-npm run dev:api    # API em http://localhost:3333
 npm run dev:web    # Site em http://localhost:5173
 ```
 
-Abra <http://localhost:5173>.
+Abra <http://localhost:5173>. No modo padrão os dados ficam no navegador — não precisa
+subir a API.
 
-> No Windows dá para usar o atalho `iniciar.bat`, que instala tudo e abre os dois terminais.
+Se for usar o **modo servidor**, rode também `npm run dev:api` (porta 3333) e inicie o site
+com `VITE_MODO=servidor npm run dev:web`. Nesse caso a API cria o banco, aplica as migrações
+e carrega 186 ocorrências de exemplo na primeira requisição.
 
-Na primeira requisição a API cria o banco, aplica as migrações e carrega 186 ocorrências de
-exemplo, para as telas já abrirem com gráficos preenchidos.
+> No Windows dá para usar o atalho `iniciar.bat`.
 
 ---
 
-## Publicar (Vercel ou Netlify)
+## Publicar
 
-O projeto está configurado para as duas — escolha uma. Em qualquer caso, o passo 1 (banco)
-é obrigatório: as duas rodam funções em disco efêmero, onde um arquivo SQLite seria apagado.
+O sistema guarda os dados de três jeitos possíveis. Ele escolhe sozinho, na seguinte ordem:
 
-### 1. Criar o banco no Turso
+| Modo | Quando liga | Os dados ficam | Todos veem o mesmo? |
+|---|---|---|---|
+| **Supabase** | `VITE_SUPABASE_URL` + `VITE_SUPABASE_KEY` definidas | Banco na nuvem | Sim |
+| **Navegador** | padrão, sem configurar nada | localStorage de cada aparelho | Não |
+| **Servidor** | `VITE_MODO=servidor` | Banco via a API Express do projeto | Sim |
 
-Não dá para usar arquivo SQLite nessas plataformas: as funções rodam em disco efêmero e tudo que for
-gravado desaparece. O Turso resolve isso hospedando o mesmo SQLite — nenhuma consulta do
-projeto precisou ser reescrita.
+Em qualquer um deles o site é estático: **não é preciso função no servidor**, porque as contas
+dos indicadores acontecem no navegador.
 
-```bash
-# instale o CLI: https://docs.turso.tech/cli/installation
-turso auth signup
-turso db create manutencao-capricche
+### Modo Supabase (recomendado)
 
-turso db show manutencao-capricche --url      # -> libsql://...
-turso db tokens create manutencao-capricche   # -> eyJhbGciOi...
-```
+**1. Criar as tabelas.** No Supabase, abra **SQL Editor → New query**, cole o conteúdo de
+[`supabase/schema.sql`](supabase/schema.sql) e clique em **Run**. Dá para rodar mais de uma
+vez sem quebrar nada.
 
-Guarde os dois valores.
+**2. Pegar as credenciais.** Em **Project Settings → API**:
 
-### 2a. Vercel
+- *Project URL* → `VITE_SUPABASE_URL`
+- chave **publishable** (ou *anon public*, em projetos antigos) → `VITE_SUPABASE_KEY`
 
-> **Atenção ao Diretório Raiz.** A Vercel detecta o Express e sugere `backend` — isso quebra
-> o deploy, porque ela passa a procurar o `vercel.json` dentro dessa pasta e ignora o `api/`
-> e o `frontend/`. Em **Diretório Raiz**, clique em *Editar* e deixe a **raiz do repositório**
-> (`./`).
+A chave fica visível no navegador — é assim que o Supabase funciona. Quem protege os dados
+são as políticas de acesso (RLS) criadas pelo schema. **Nunca use a chave `service_role`.**
 
-Deixe as configurações de build como estão: o `vercel.json` já define o comando
-(`npm run build --workspace frontend`), a pasta de saída (`frontend/dist`) e a função da API.
+**3. Configurar a hospedagem.** Na Netlify (*Site settings → Environment variables*) ou na
+Vercel (*Settings → Environment Variables*), cadastre as duas variáveis e mande um novo deploy.
+Variável nova só vale a partir do próximo build.
 
-### 2b. Netlify
+**4. Conferir.** Abra o site: o rodapé deve dizer *"dados sincronizados na nuvem"*.
 
-Ao importar, a Netlify lê o `netlify.toml` e já preenche tudo: comando de build, pasta
-publicada (`frontend/dist`) e a pasta de funções (`netlify/functions`). Não é preciso mexer
-em nada na tela de importação.
+> **Quem pode mexer.** O schema libera leitura e escrita para qualquer pessoa que tenha o
+> endereço do site, sem login. Serve para uma ferramenta interna cujo link não é divulgado,
+> mas se o link vazar, qualquer um edita — inclusive apaga. Para exigir login, troque
+> `to anon, authenticated` por `to authenticated` nas políticas do schema e ative o
+> Supabase Auth.
 
-### 3. Variáveis de ambiente (nas duas)
+### Modo navegador
 
-| Chave | Valor |
-|---|---|
-| `TURSO_DATABASE_URL` | a URL `libsql://...` do passo 1 |
-| `TURSO_AUTH_TOKEN` | o token do passo 1 |
-| `FUSO_HORARIO` | `-3` (horário de Brasília) |
-| `SEED_ON_EMPTY` | `true` no primeiro deploy; depois troque para `false` |
+Não precisa de nada: aponte a Netlify ou a Vercel para o repositório e pronto. O
+`netlify.toml` / `vercel.json` já traz o comando de build e a pasta de saída.
 
-Não leve `PORT`, `DB_FILE` nem `CORS_ORIGIN` para produção: as duas primeiras são ignoradas
-quando o Turso está configurado, e a terceira aponta para `localhost`.
+O limite é que os dados ficam **por aparelho e por navegador** — quem registra uma parada no
+computador do escritório não vê esse registro no celular. Por isso a tela de **Cadastros**
+mostra o cartão **Backup dos dados**: baixe uma cópia de vez em quando; é também como se leva
+o histórico para outra máquina.
 
-### 4. Depois do primeiro deploy
+### Modo servidor (Express + Turso)
 
-O banco sobe com os dados de exemplo. Quando cadastrar as máquinas de verdade:
+Só se você quiser rodar o backend do projeto. Defina `VITE_MODO=servidor` no site e, na API,
+`TURSO_DATABASE_URL`, `TURSO_AUTH_TOKEN` e `FUSO_HORARIO=-3`.
 
-1. Apague as ocorrências e os cadastros de exemplo pela própria tela de Cadastros.
-2. Mude `SEED_ON_EMPTY` para `false` e faça um novo deploy — assim, se um dia o banco
-   ficar vazio, o sistema não volta a inventar dados.
+> **Vercel:** ela detecta o Express e sugere `backend` como Diretório Raiz — isso quebra o
+> deploy. Deixe a **raiz do repositório** (`./`).
 
-### Se algo der errado: `/api/health`
-
-Essa rota responde **sem tocar no banco**, de propósito. Abra
-`https://seu-site/api/health` e ela conta o que o servidor está enxergando:
-
-```json
-{ "ok": true, "banco": "turso", "serverless": true, "fuso_horario": "-3" }
-```
-
-- `"banco": "turso"` → configurado certo.
-- `"banco": "NAO CONFIGURADO"` → faltam `TURSO_DATABASE_URL` / `TURSO_AUTH_TOKEN`.
-  As demais rotas vão responder **503** com essa mesma explicação.
-
-### Por que `FUSO_HORARIO` existe
-
-Servidor na nuvem roda em UTC. Sem esse ajuste, um chamado aberto às 14h apareceria como 17h.
-O valor é o deslocamento em horas; `-3` cobre o Brasil inteiro o ano todo, já que o horário
-de verão foi extinto em 2019.
+O diagnóstico da API fica em `/api/health`, que responde **sem tocar no banco**: mostra se o
+Turso está configurado. Faltando as variáveis, as rotas respondem **503** explicando o quê.
 
 ---
 

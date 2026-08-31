@@ -161,7 +161,7 @@ lookupsRouter.post(
     } catch (err) {
       const msg = String((err as Error).message);
       if (msg.includes('UNIQUE')) {
-        return res.status(409).json({ erro: `${cfg.rotulo} ja cadastrado com esse nome/codigo.` });
+        return res.status(409).json({ erro: `Ja existe outro registro com esse nome/codigo.` });
       }
       throw err;
     }
