@@ -5,7 +5,7 @@
   "buildCommand": "npm run build --workspace frontend",
   "outputDirectory": "frontend/dist",
   "functions": {
-    "api/[[...slug]].ts": {
+    "api/**": {
       "includeFiles": "backend/sql/**",
       "maxDuration": 30
     }
