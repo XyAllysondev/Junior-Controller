@@ -1,0 +1,149 @@
+@import 'tailwindcss';
+
+/* Tema escuro controlado pela classe .dark no <html> (e nao pelo sistema),
+   para o botao de alternar funcionar de verdade. */
+@custom-variant dark (&:where(.dark, .dark *));
+
+@theme {
+  --font-sans: 'Inter', ui-sans-serif, system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* ------------------------------------------------------------------
+   * Paleta da marca, tirada do logo Capricche:
+   *   vermelho do coracao ... #E51E17 / #D71C15
+   *   dourado da fita ....... #C09232
+   *   amarelo do brilho ..... #FAF0C4
+   * ---------------------------------------------------------------- */
+  --color-marca-50: #fef3f2;
+  --color-marca-100: #fde3e1;
+  --color-marca-200: #fbc9c6;
+  --color-marca-300: #f7a29c;
+  --color-marca-400: #f06c62;
+  --color-marca-500: #e63d33;
+  --color-marca-600: #d91f17;
+  --color-marca-700: #b31712;
+  --color-marca-800: #941714;
+  --color-marca-900: #7c1917;
+  --color-marca-950: #430907;
+
+  /* Dourado da fita "e Show!" */
+  --color-ouro-50: #fdf9ec;
+  --color-ouro-100: #faf0c8;
+  --color-ouro-200: #f5e08d;
+  --color-ouro-300: #eecb51;
+  --color-ouro-400: #e7b528;
+  --color-ouro-500: #d69a17;
+  --color-ouro-600: #c0821a;
+  --color-ouro-700: #9a5f18;
+  --color-ouro-800: #7f4b1a;
+  --color-ouro-900: #6c3e19;
+  --color-ouro-950: #3e2009;
+}
+
+@layer base {
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    @apply bg-slate-100 text-slate-900 antialiased;
+    font-family: var(--font-sans);
+  }
+
+  .dark body {
+    @apply bg-slate-950 text-slate-100;
+  }
+
+  /* Foco sempre visivel e com bom contraste - acessibilidade por teclado */
+  :focus-visible {
+    @apply outline-2 outline-offset-2 outline-marca-500;
+  }
+
+  /* Dentro do menu lateral vermelho o foco precisa ser claro para aparecer */
+  .barra-marca :focus-visible {
+    @apply outline-white;
+  }
+
+  /* Barras de rolagem discretas */
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    @apply rounded-full bg-slate-400/40;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-slate-400/70;
+  }
+  .barra-marca ::-webkit-scrollbar-thumb {
+    @apply bg-white/25;
+  }
+
+  /* Deixa os seletores de data legiveis no tema escuro */
+  .dark input[type='date']::-webkit-calendar-picker-indicator,
+  .dark input[type='datetime-local']::-webkit-calendar-picker-indicator,
+  .dark input[type='time']::-webkit-calendar-picker-indicator {
+    filter: invert(1) opacity(0.6);
+  }
+}
+
+@layer utilities {
+  /* Link "pular para o conteudo": some ate receber foco */
+  .pular-link {
+    @apply absolute left-4 top-4 z-50 -translate-y-24 rounded-lg bg-marca-600 px-4 py-2
+           font-semibold text-white transition-transform focus:translate-y-0;
+  }
+
+  /* Fundo vermelho da marca, usado no menu lateral e no topo do celular */
+  .barra-marca {
+    background-image: linear-gradient(160deg, #b31712 0%, #941714 55%, #6d1614 100%);
+  }
+
+  /* Fio dourado que separa a marca do conteudo */
+  .fio-ouro {
+    background-image: linear-gradient(90deg, #c0821a 0%, #eecb51 50%, #c0821a 100%);
+  }
+
+  .animar-entrada {
+    animation: entrada 0.28s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+
+  .animar-subida {
+    animation: subida 0.32s cubic-bezier(0.16, 1, 0.3, 1) both;
+  }
+}
+
+@keyframes entrada {
+  from {
+    opacity: 0;
+    transform: scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes subida {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}
