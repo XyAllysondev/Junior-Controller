@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { db } from '../db.js';
+import { todos } from '../db.js';
+import { rota } from '../rota.js';
 
 export const taRouter = Router();
 
@@ -53,15 +54,14 @@ const TA_MIN = `(julianday(o.atendido_em) - julianday(o.aberto_em)) * 1440`;
 const REPARO_MIN = `(julianday(o.fim_em) - julianday(o.atendido_em)) * 1440`;
 
 /* ---------------------------------------------------------------------
- * GET /api/ta/resumo
- * Uma linha por turno: volume de chamados, TA medio/maximo, aderencia a
- * meta e tempo medio de reparo.
+ * GET /api/ta/resumo - uma linha por turno
  * ------------------------------------------------------------------ */
-taRouter.get('/resumo', (req, res) => {
-  const { where, params, meta } = montarFiltros(req.query as Record<string, string | undefined>);
+taRouter.get(
+  '/resumo',
+  rota(async (req, res) => {
+    const { where, params, meta } = montarFiltros(req.query as Record<string, string | undefined>);
 
-  const linhas = db
-    .prepare(
+    const linhas = await todos<any>(
       `SELECT
          COALESCE(t.id, 0)                AS turno_id,
          COALESCE(t.nome, 'Sem turno')    AS turno,
@@ -80,38 +80,45 @@ taRouter.get('/resumo', (req, res) => {
        ${where}
        GROUP BY COALESCE(t.id, 0)
        ORDER BY COALESCE(t.hora_inicio, 'zz')`,
-    )
-    .all(meta, ...params) as any[];
+      [meta, ...params] as any,
+    );
 
-  const itens = linhas.map((l) => ({
-    ...l,
-    aderencia: l.chamados ? Math.round((l.dentro_meta / l.chamados) * 1000) / 10 : 0,
-  }));
+    const itens = linhas.map((l) => ({
+      ...l,
+      aderencia: l.chamados ? Math.round((l.dentro_meta / l.chamados) * 1000) / 10 : 0,
+    }));
 
-  const chamados = itens.reduce((s, l) => s + l.chamados, 0);
-  const dentroMeta = itens.reduce((s, l) => s + l.dentro_meta, 0);
-  const somaTa = itens.reduce((s, l) => s + (l.ta_medio || 0) * l.chamados, 0);
+    const chamados = itens.reduce((s, l) => s + l.chamados, 0);
+    const dentroMeta = itens.reduce((s, l) => s + l.dentro_meta, 0);
+    const somaTa = itens.reduce((s, l) => s + (l.ta_medio || 0) * l.chamados, 0);
 
-  res.json({
-    meta,
-    itens,
-    total: {
-      chamados,
-      dentro_meta: dentroMeta,
-      aderencia: chamados ? Math.round((dentroMeta / chamados) * 1000) / 10 : 0,
-      ta_medio: chamados ? Math.round((somaTa / chamados) * 10) / 10 : 0,
-    },
-  });
-});
+    res.json({
+      meta,
+      itens,
+      total: {
+        chamados,
+        dentro_meta: dentroMeta,
+        aderencia: chamados ? Math.round((dentroMeta / chamados) * 1000) / 10 : 0,
+        ta_medio: chamados ? Math.round((somaTa / chamados) * 10) / 10 : 0,
+      },
+    });
+  }),
+);
 
 /* ---------------------------------------------------------------------
  * GET /api/ta/serie - TA medio por dia, uma coluna por turno
  * ------------------------------------------------------------------ */
-taRouter.get('/serie', (req, res) => {
-  const { where, params } = montarFiltros(req.query as Record<string, string | undefined>);
+taRouter.get(
+  '/serie',
+  rota(async (req, res) => {
+    const { where, params } = montarFiltros(req.query as Record<string, string | undefined>);
 
-  const linhas = db
-    .prepare(
+    const linhas = await todos<{
+      dia: string;
+      turno: string;
+      ta_medio: number;
+      chamados: number;
+    }>(
       `SELECT
          date(o.aberto_em)             AS dia,
          COALESCE(t.nome, 'Sem turno') AS turno,
@@ -123,32 +130,34 @@ taRouter.get('/serie', (req, res) => {
        ${where}
        GROUP BY dia, turno
        ORDER BY dia`,
-    )
-    .all(...params) as { dia: string; turno: string; ta_medio: number; chamados: number }[];
+      params as any,
+    );
 
-  // Pivot: { dia, "1o Turno": 12.5, "2o Turno": 8.0, ... }
-  const porDia = new Map<string, Record<string, unknown>>();
-  const turnos = new Set<string>();
+    // Pivot: { dia, "1o Turno": 12.5, "2o Turno": 8.0, ... }
+    const porDia = new Map<string, Record<string, unknown>>();
+    const turnos = new Set<string>();
 
-  for (const l of linhas) {
-    turnos.add(l.turno);
-    if (!porDia.has(l.dia)) porDia.set(l.dia, { dia: l.dia, chamados: 0 });
-    const linha = porDia.get(l.dia)!;
-    linha[l.turno] = l.ta_medio;
-    linha.chamados = (linha.chamados as number) + l.chamados;
-  }
+    for (const l of linhas) {
+      turnos.add(l.turno);
+      if (!porDia.has(l.dia)) porDia.set(l.dia, { dia: l.dia, chamados: 0 });
+      const linha = porDia.get(l.dia)!;
+      linha[l.turno] = l.ta_medio;
+      linha.chamados = (linha.chamados as number) + l.chamados;
+    }
 
-  res.json({ turnos: [...turnos], itens: [...porDia.values()] });
-});
+    res.json({ turnos: [...turnos], itens: [...porDia.values()] });
+  }),
+);
 
 /* ---------------------------------------------------------------------
  * GET /api/ta/tecnicos - desempenho por tecnico
  * ------------------------------------------------------------------ */
-taRouter.get('/tecnicos', (req, res) => {
-  const { where, params, meta } = montarFiltros(req.query as Record<string, string | undefined>);
+taRouter.get(
+  '/tecnicos',
+  rota(async (req, res) => {
+    const { where, params, meta } = montarFiltros(req.query as Record<string, string | undefined>);
 
-  const itens = db
-    .prepare(
+    const itens = await todos<any>(
       `SELECT
          COALESCE(tec.nome, 'Nao atribuido') AS tecnico,
          COUNT(*)                                        AS chamados,
@@ -161,27 +170,29 @@ taRouter.get('/tecnicos', (req, res) => {
        ${where}
        GROUP BY COALESCE(tec.id, 0)
        ORDER BY chamados DESC`,
-    )
-    .all(meta, ...params) as any[];
+      [meta, ...params] as any,
+    );
 
-  res.json({
-    meta,
-    itens: itens.map((l) => ({
-      ...l,
-      aderencia: l.chamados ? Math.round((l.dentro_meta / l.chamados) * 1000) / 10 : 0,
-    })),
-  });
-});
+    res.json({
+      meta,
+      itens: itens.map((l) => ({
+        ...l,
+        aderencia: l.chamados ? Math.round((l.dentro_meta / l.chamados) * 1000) / 10 : 0,
+      })),
+    });
+  }),
+);
 
 /* ---------------------------------------------------------------------
  * GET /api/ta/piores - chamados que mais demoraram a ser atendidos
  * ------------------------------------------------------------------ */
-taRouter.get('/piores', (req, res) => {
-  const { where, params } = montarFiltros(req.query as Record<string, string | undefined>);
-  const limite = Math.min(Math.max(Number(req.query.limite) || 10, 1), 100);
+taRouter.get(
+  '/piores',
+  rota(async (req, res) => {
+    const { where, params } = montarFiltros(req.query as Record<string, string | undefined>);
+    const limite = Math.min(Math.max(Number(req.query.limite) || 10, 1), 100);
 
-  const itens = db
-    .prepare(
+    const itens = await todos(
       `SELECT
          o.id, o.aberto_em, o.atendido_em, o.descricao, o.prioridade,
          m.codigo AS maquina_codigo, m.nome AS maquina_nome,
@@ -195,8 +206,9 @@ taRouter.get('/piores', (req, res) => {
        ${where}
        ORDER BY ta_min DESC
        LIMIT ?`,
-    )
-    .all(...params, limite);
+      [...params, limite] as any,
+    );
 
-  res.json({ itens });
-});
+    res.json({ itens });
+  }),
+);

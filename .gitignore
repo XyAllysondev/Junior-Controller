@@ -2,3 +2,6 @@ node_modules/
 dist/
 data/
 .env
+*.tsbuildinfo
+.vercel/
+_teste-*

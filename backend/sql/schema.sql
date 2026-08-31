@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS setores (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
   nome      TEXT    NOT NULL UNIQUE,
   ativo     INTEGER NOT NULL DEFAULT 1,
-  criado_em TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+  criado_em TEXT    NOT NULL DEFAULT ({{AGORA}})
 );
 
 CREATE TABLE IF NOT EXISTS maquinas (
@@ -24,7 +24,7 @@ CREATE TABLE IF NOT EXISTS maquinas (
   criticidade TEXT    NOT NULL DEFAULT 'Media'
               CHECK (criticidade IN ('Baixa','Media','Alta')),
   ativo       INTEGER NOT NULL DEFAULT 1,
-  criado_em   TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+  criado_em   TEXT    NOT NULL DEFAULT ({{AGORA}})
 );
 
 CREATE TABLE IF NOT EXISTS motivos (
@@ -34,7 +34,7 @@ CREATE TABLE IF NOT EXISTS motivos (
             CHECK (categoria IN ('Mecanica','Eletrica','Hidraulica','Pneumatica',
                                  'Automacao','Operacional','Qualidade','Setup','Outros')),
   ativo     INTEGER NOT NULL DEFAULT 1,
-  criado_em TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+  criado_em TEXT    NOT NULL DEFAULT ({{AGORA}})
 );
 
 CREATE TABLE IF NOT EXISTS tecnicos (
@@ -43,7 +43,7 @@ CREATE TABLE IF NOT EXISTS tecnicos (
   matricula     TEXT    UNIQUE,
   especialidade TEXT,
   ativo         INTEGER NOT NULL DEFAULT 1,
-  criado_em     TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+  criado_em     TEXT    NOT NULL DEFAULT ({{AGORA}})
 );
 
 -- ---------------------------------------------------------------------
@@ -75,11 +75,11 @@ CREATE TABLE IF NOT EXISTS ocorrencias (
   solucao        TEXT,
   parou_producao INTEGER NOT NULL DEFAULT 1,
 
-  aberto_em      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
+  aberto_em      TEXT NOT NULL DEFAULT ({{AGORA}}),
   fim_em         TEXT,
 
-  criado_em      TEXT NOT NULL DEFAULT (datetime('now','localtime')),
-  atualizado_em  TEXT NOT NULL DEFAULT (datetime('now','localtime'))
+  criado_em      TEXT NOT NULL DEFAULT ({{AGORA}}),
+  atualizado_em  TEXT NOT NULL DEFAULT ({{AGORA}})
 );
 
 CREATE INDEX IF NOT EXISTS idx_ocorrencias_maquina  ON ocorrencias(maquina_id);

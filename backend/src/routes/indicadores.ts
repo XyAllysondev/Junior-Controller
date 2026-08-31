@@ -1,5 +1,6 @@
 import { Router } from 'express';
-import { db } from '../db.js';
+import { diaISO, todos, um } from '../db.js';
+import { rota } from '../rota.js';
 
 export const indicadoresRouter = Router();
 
@@ -26,17 +27,9 @@ type Ctx = {
   horasDia: number;
 };
 
-function hoje(): string {
-  return (db.prepare(`SELECT date('now','localtime') AS d`).get() as { d: string }).d;
-}
-
-function diasAtras(n: number): string {
-  return (db.prepare(`SELECT date('now','localtime',?) AS d`).get(`-${n} days`) as { d: string }).d;
-}
-
 function montarCtx(q: Record<string, string | undefined>): Ctx {
-  const de = q.de || diasAtras(29);
-  const ate = q.ate || hoje();
+  const de = q.de || diaISO(29);
+  const ate = q.ate || diaISO(0);
 
   const where: string[] = [
     `o.status <> 'Cancelada'`,
@@ -68,7 +61,7 @@ function montarCtx(q: Record<string, string | undefined>): Ctx {
 }
 
 /** Quantas maquinas ativas entram no calculo, respeitando os filtros. */
-function contarMaquinas(q: Record<string, string | undefined>): number {
+async function contarMaquinas(q: Record<string, string | undefined>): Promise<number> {
   const where = ['m.ativo = 1'];
   const params: unknown[] = [];
   if (q.setor_id && q.setor_id !== 'todos') {
@@ -79,10 +72,17 @@ function contarMaquinas(q: Record<string, string | undefined>): number {
     where.push('m.id = ?');
     params.push(q.maquina_id);
   }
-  const linha = db
-    .prepare(`SELECT COUNT(*) AS n FROM maquinas m WHERE ${where.join(' AND ')}`)
-    .get(...params) as { n: number };
-  return linha.n;
+  const linha = await um<{ n: number }>(
+    `SELECT COUNT(*) AS n FROM maquinas m WHERE ${where.join(' AND ')}`,
+    params as any,
+  );
+  return linha?.n ?? 0;
+}
+
+/** Dias do periodo, inclusive as duas pontas. */
+async function diasDoPeriodo(de: string, ate: string): Promise<number> {
+  const linha = await um<{ d: number }>('SELECT julianday(?) - julianday(?) + 1 AS d', [ate, de]);
+  return linha?.d || 1;
 }
 
 const arred = (v: number, casas = 1) => Math.round(v * 10 ** casas) / 10 ** casas;
@@ -90,12 +90,13 @@ const arred = (v: number, casas = 1) => Math.round(v * 10 ** casas) / 10 ** casa
 /* ---------------------------------------------------------------------
  * GET /api/indicadores/resumo -> os cartoes do topo do dashboard
  * ------------------------------------------------------------------ */
-indicadoresRouter.get('/resumo', (req, res) => {
-  const q = req.query as Record<string, string | undefined>;
-  const ctx = montarCtx(q);
+indicadoresRouter.get(
+  '/resumo',
+  rota(async (req, res) => {
+    const q = req.query as Record<string, string | undefined>;
+    const ctx = montarCtx(q);
 
-  const agg = db
-    .prepare(
+    const agg = await um<Record<string, number | null>>(
       `SELECT
          COUNT(*)                                                       AS total,
          SUM(CASE WHEN o.status = 'Aberta'         THEN 1 ELSE 0 END)   AS abertas,
@@ -110,53 +111,57 @@ indicadoresRouter.get('/resumo', (req, res) => {
        FROM ocorrencias o
        LEFT JOIN maquinas m ON m.id = o.maquina_id
        ${ctx.where}`,
-    )
-    .get(...ctx.params) as Record<string, number | null>;
+      ctx.params as any,
+    );
 
-  const dias =
-    (db.prepare('SELECT julianday(?) - julianday(?) + 1 AS d').get(ctx.ate, ctx.de) as { d: number })
-      .d || 1;
+    const dias = await diasDoPeriodo(ctx.de, ctx.ate);
+    const maquinas = await contarMaquinas(q);
 
-  const maquinas = contarMaquinas(q);
-  const horasProgramadas = dias * ctx.horasDia * Math.max(maquinas, 1);
-  const horasParadas = (agg.parada_total_min || 0) / 60;
-  const horasOperando = Math.max(horasProgramadas - horasParadas, 0);
+    const horasProgramadas = dias * ctx.horasDia * Math.max(maquinas, 1);
+    const horasParadas = (agg?.parada_total_min || 0) / 60;
+    const horasOperando = Math.max(horasProgramadas - horasParadas, 0);
+    const falhas = agg?.corretivas || 0;
 
-  const falhas = agg.corretivas || 0;
-
-  res.json({
-    periodo: { de: ctx.de, ate: ctx.ate, dias: Math.round(dias), horas_dia: ctx.horasDia, maquinas },
-    total: agg.total || 0,
-    abertas: agg.abertas || 0,
-    em_atendimento: agg.em_atendimento || 0,
-    concluidas: agg.concluidas || 0,
-    corretivas: agg.corretivas || 0,
-    preventivas: agg.preventivas || 0,
-    criticas_abertas: agg.criticas_abertas || 0,
-    mttr_min: arred(agg.mttr_min || 0),
-    ta_min: arred(agg.ta_min || 0),
-    mtbf_h: falhas > 0 ? arred(horasOperando / falhas) : null,
-    horas_paradas: arred(horasParadas),
-    horas_programadas: arred(horasProgramadas),
-    disponibilidade: horasProgramadas > 0 ? arred((horasOperando / horasProgramadas) * 100, 2) : null,
-  });
-});
+    res.json({
+      periodo: {
+        de: ctx.de,
+        ate: ctx.ate,
+        dias: Math.round(dias),
+        horas_dia: ctx.horasDia,
+        maquinas,
+      },
+      total: agg?.total || 0,
+      abertas: agg?.abertas || 0,
+      em_atendimento: agg?.em_atendimento || 0,
+      concluidas: agg?.concluidas || 0,
+      corretivas: agg?.corretivas || 0,
+      preventivas: agg?.preventivas || 0,
+      criticas_abertas: agg?.criticas_abertas || 0,
+      mttr_min: arred(agg?.mttr_min || 0),
+      ta_min: arred(agg?.ta_min || 0),
+      mtbf_h: falhas > 0 ? arred(horasOperando / falhas) : null,
+      horas_paradas: arred(horasParadas),
+      horas_programadas: arred(horasProgramadas),
+      disponibilidade:
+        horasProgramadas > 0 ? arred((horasOperando / horasProgramadas) * 100, 2) : null,
+    });
+  }),
+);
 
 /* ---------------------------------------------------------------------
  * GET /api/indicadores/por-maquina -> ranking de maquinas problematicas
  * ------------------------------------------------------------------ */
-indicadoresRouter.get('/por-maquina', (req, res) => {
-  const q = req.query as Record<string, string | undefined>;
-  const ctx = montarCtx(q);
-  const limite = Math.min(Math.max(Number(q.limite) || 10, 1), 100);
+indicadoresRouter.get(
+  '/por-maquina',
+  rota(async (req, res) => {
+    const q = req.query as Record<string, string | undefined>;
+    const ctx = montarCtx(q);
+    const limite = Math.min(Math.max(Number(q.limite) || 10, 1), 100);
 
-  const dias =
-    (db.prepare('SELECT julianday(?) - julianday(?) + 1 AS d').get(ctx.ate, ctx.de) as { d: number })
-      .d || 1;
-  const horasProgramadas = dias * ctx.horasDia;
+    const dias = await diasDoPeriodo(ctx.de, ctx.ate);
+    const horasProgramadas = dias * ctx.horasDia;
 
-  const linhas = db
-    .prepare(
+    const linhas = await todos<any>(
       `SELECT
          m.id, m.codigo, m.nome, m.criticidade,
          COALESCE(s.nome, '-') AS setor,
@@ -171,32 +176,39 @@ indicadoresRouter.get('/por-maquina', (req, res) => {
        GROUP BY m.id
        ORDER BY minutos_parado DESC
        LIMIT ?`,
-    )
-    .all(...ctx.params, limite) as any[];
+      [...ctx.params, limite] as any,
+    );
 
-  res.json({
-    itens: linhas.map((l) => {
-      const horasParado = (l.minutos_parado || 0) / 60;
-      const operando = Math.max(horasProgramadas - horasParado, 0);
-      return {
-        ...l,
-        horas_parado: arred(horasParado, 2),
-        disponibilidade: arred((operando / horasProgramadas) * 100, 2),
-        mtbf_h: l.falhas > 0 ? arred(operando / l.falhas) : null,
-      };
-    }),
-  });
-});
+    res.json({
+      itens: linhas.map((l) => {
+        const horasParado = (l.minutos_parado || 0) / 60;
+        const operando = Math.max(horasProgramadas - horasParado, 0);
+        return {
+          ...l,
+          horas_parado: arred(horasParado, 2),
+          disponibilidade: arred((operando / horasProgramadas) * 100, 2),
+          mtbf_h: l.falhas > 0 ? arred(operando / l.falhas) : null,
+        };
+      }),
+    });
+  }),
+);
 
 /* ---------------------------------------------------------------------
  * GET /api/indicadores/pareto -> motivos que mais custam tempo de parada
  * ------------------------------------------------------------------ */
-indicadoresRouter.get('/pareto', (req, res) => {
-  const ctx = montarCtx(req.query as Record<string, string | undefined>);
-  const limite = Math.min(Math.max(Number(req.query.limite) || 8, 1), 50);
+indicadoresRouter.get(
+  '/pareto',
+  rota(async (req, res) => {
+    const ctx = montarCtx(req.query as Record<string, string | undefined>);
+    const limite = Math.min(Math.max(Number(req.query.limite) || 8, 1), 50);
 
-  const linhas = db
-    .prepare(
+    const linhas = await todos<{
+      motivo: string;
+      categoria: string;
+      ocorrencias: number;
+      minutos: number;
+    }>(
       `SELECT
          COALESCE(mo.nome, 'Nao informado')      AS motivo,
          COALESCE(mo.categoria, 'Outros')        AS categoria,
@@ -209,33 +221,35 @@ indicadoresRouter.get('/pareto', (req, res) => {
        GROUP BY COALESCE(mo.id, 0)
        ORDER BY minutos DESC
        LIMIT ?`,
-    )
-    .all(...ctx.params, limite) as { motivo: string; minutos: number; ocorrencias: number }[];
+      [...ctx.params, limite] as any,
+    );
 
-  const total = linhas.reduce((s, l) => s + (l.minutos || 0), 0);
-  let acumulado = 0;
+    const total = linhas.reduce((s, l) => s + (l.minutos || 0), 0);
+    let acumulado = 0;
 
-  res.json({
-    total_minutos: arred(total),
-    itens: linhas.map((l) => {
-      acumulado += l.minutos || 0;
-      return {
-        ...l,
-        percentual: total ? arred((l.minutos / total) * 100) : 0,
-        acumulado: total ? arred((acumulado / total) * 100) : 0,
-      };
-    }),
-  });
-});
+    res.json({
+      total_minutos: arred(total),
+      itens: linhas.map((l) => {
+        acumulado += l.minutos || 0;
+        return {
+          ...l,
+          percentual: total ? arred((l.minutos / total) * 100) : 0,
+          acumulado: total ? arred((acumulado / total) * 100) : 0,
+        };
+      }),
+    });
+  }),
+);
 
 /* ---------------------------------------------------------------------
  * GET /api/indicadores/serie -> paradas e minutos parados por dia
  * ------------------------------------------------------------------ */
-indicadoresRouter.get('/serie', (req, res) => {
-  const ctx = montarCtx(req.query as Record<string, string | undefined>);
+indicadoresRouter.get(
+  '/serie',
+  rota(async (req, res) => {
+    const ctx = montarCtx(req.query as Record<string, string | undefined>);
 
-  const itens = db
-    .prepare(
+    const itens = await todos(
       `SELECT
          date(o.aberto_em) AS dia,
          COUNT(*)          AS ocorrencias,
@@ -246,21 +260,23 @@ indicadoresRouter.get('/serie', (req, res) => {
        ${ctx.where}
        GROUP BY dia
        ORDER BY dia`,
-    )
-    .all(...ctx.params);
+      ctx.params as any,
+    );
 
-  res.json({ itens });
-});
+    res.json({ itens });
+  }),
+);
 
 /* ---------------------------------------------------------------------
  * GET /api/indicadores/distribuicao -> fatias por tipo, categoria e setor
  * ------------------------------------------------------------------ */
-indicadoresRouter.get('/distribuicao', (req, res) => {
-  const ctx = montarCtx(req.query as Record<string, string | undefined>);
+indicadoresRouter.get(
+  '/distribuicao',
+  rota(async (req, res) => {
+    const ctx = montarCtx(req.query as Record<string, string | undefined>);
 
-  const porGrupo = (expr: string) =>
-    db
-      .prepare(
+    const porGrupo = (expr: string) =>
+      todos(
         `SELECT ${expr} AS rotulo, COUNT(*) AS total,
                 ROUND(SUM(CASE WHEN o.fim_em IS NOT NULL THEN ${PARADA_MIN} ELSE 0 END), 1) AS minutos
          FROM ocorrencias o
@@ -270,13 +286,16 @@ indicadoresRouter.get('/distribuicao', (req, res) => {
          ${ctx.where}
          GROUP BY rotulo
          ORDER BY total DESC`,
-      )
-      .all(...ctx.params);
+        ctx.params as any,
+      );
 
-  res.json({
-    por_tipo: porGrupo('o.tipo'),
-    por_categoria: porGrupo(`COALESCE(mo.categoria, 'Outros')`),
-    por_setor: porGrupo(`COALESCE(s.nome, 'Sem setor')`),
-    por_prioridade: porGrupo('o.prioridade'),
-  });
-});
+    const [por_tipo, por_categoria, por_setor, por_prioridade] = await Promise.all([
+      porGrupo('o.tipo'),
+      porGrupo(`COALESCE(mo.categoria, 'Outros')`),
+      porGrupo(`COALESCE(s.nome, 'Sem setor')`),
+      porGrupo('o.prioridade'),
+    ]);
+
+    res.json({ por_tipo, por_categoria, por_setor, por_prioridade });
+  }),
+);

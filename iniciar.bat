@@ -1,18 +1,16 @@
 @echo off
 chcp 65001 >nul
-title Controle de Manutencao
+title Capricche - Manutencao Eletrica
 cd /d "%~dp0"
 
 echo.
 echo  Iniciando o Controle de Manutencao...
 echo.
 
-if not exist "backend\node_modules" (
-  echo  Instalando dependencias do backend, aguarde...
-  pushd backend
+if not exist "node_modules" (
+  echo  Instalando dependencias, aguarde...
   call npm install
-  call npm approve-scripts better-sqlite3 esbuild
-  popd
+  call npm approve-scripts esbuild
 )
 
 if not exist "backend\.env" (
@@ -20,16 +18,8 @@ if not exist "backend\.env" (
   echo  Arquivo backend\.env criado.
 )
 
-if not exist "frontend\node_modules" (
-  echo  Instalando dependencias do frontend, aguarde...
-  pushd frontend
-  call npm install
-  call npm approve-scripts esbuild
-  popd
-)
-
-start "API - Manutencao" cmd /k "cd /d "%~dp0backend" && npm run dev"
-start "Site - Manutencao" cmd /k "cd /d "%~dp0frontend" && npm run dev"
+start "API - Manutencao" cmd /k "cd /d "%~dp0" && npm run dev:api"
+start "Site - Manutencao" cmd /k "cd /d "%~dp0" && npm run dev:web"
 
 echo.
 echo  API ....  http://localhost:3333

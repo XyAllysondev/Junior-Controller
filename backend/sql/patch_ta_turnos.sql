@@ -13,7 +13,7 @@ CREATE TABLE IF NOT EXISTS turnos (
   hora_inicio TEXT    NOT NULL,            -- 'HH:MM'
   hora_fim    TEXT    NOT NULL,            -- 'HH:MM' (pode virar o dia, ex 22:00 -> 06:00)
   ativo       INTEGER NOT NULL DEFAULT 1,
-  criado_em   TEXT    NOT NULL DEFAULT (datetime('now','localtime'))
+  criado_em   TEXT    NOT NULL DEFAULT ({{AGORA}})
 );
 
 -- Turnos padrao 3x8. Nao duplica se ja existirem.

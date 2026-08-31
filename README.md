@@ -3,59 +3,95 @@
 Sistema web para registrar paradas de máquina, acompanhar o tempo de atendimento por turno
 e medir os indicadores clássicos de manutenção (MTTR, MTBF e disponibilidade).
 
-- **Backend:** Node + TypeScript + Express + SQLite (`better-sqlite3`)
+- **Backend:** Node + TypeScript + Express
+- **Banco:** SQLite — arquivo local no desenvolvimento, [Turso](https://turso.tech) na nuvem
 - **Frontend:** React + Vite + TypeScript + Tailwind CSS 4 + Recharts
 - **Idioma:** tudo em português, incluindo os nomes das rotas e das colunas
 
 ---
 
-## Como rodar
+## Como rodar na sua máquina
 
 Pré-requisito: **Node.js 20 ou superior** (testado no Node 24).
 
-### 1. Backend
-
 ```bash
-cd app-manutencao/backend
+git clone https://github.com/XyAllysondev/Junior-Controller.git
+cd Junior-Controller
+
 npm install
-npm approve-scripts better-sqlite3 esbuild   # só no npm 11+, libera os binários nativos
-cp .env.example .env                          # no PowerShell: Copy-Item .env.example .env
-npm run dev
+npm approve-scripts esbuild        # só no npm 11+, libera o binário do esbuild
+
+cp backend/.env.example backend/.env   # PowerShell: Copy-Item backend\.env.example backend\.env
 ```
 
-A API sobe em <http://localhost:3333>. Na primeira execução ela:
+O projeto usa **workspaces do npm**: um `npm install` na raiz já instala backend e frontend.
 
-1. cria o arquivo `data/manutencao.db`;
-2. aplica `sql/schema.sql` e `sql/patch_ta_turnos.sql`;
-3. carrega dados de exemplo (12 máquinas e 180 ocorrências) para as telas já abrirem com gráficos.
-
-Teste rápido: <http://localhost:3333/api/health>
-
-### 2. Frontend
-
-Em **outro terminal**:
+Depois, em dois terminais:
 
 ```bash
-cd app-manutencao/frontend
-npm install
-npm approve-scripts esbuild
-npm run dev
+npm run dev:api    # API em http://localhost:3333
+npm run dev:web    # Site em http://localhost:5173
 ```
 
 Abra <http://localhost:5173>.
 
-> No Windows você pode usar o atalho `iniciar.bat` na raiz do projeto: ele abre os dois
-> terminais de uma vez.
+> No Windows dá para usar o atalho `iniciar.bat`, que instala tudo e abre os dois terminais.
 
-### 3. Publicar (opcional)
+Na primeira requisição a API cria o banco, aplica as migrações e carrega 186 ocorrências de
+exemplo, para as telas já abrirem com gráficos preenchidos.
+
+---
+
+## Publicar na Vercel
+
+O deploy tem duas partes: **o banco** (Turso) e **o site** (Vercel).
+
+### 1. Criar o banco no Turso
+
+Não dá para usar arquivo SQLite na Vercel: as funções rodam em disco efêmero e tudo que for
+gravado desaparece. O Turso resolve isso hospedando o mesmo SQLite — nenhuma consulta do
+projeto precisou ser reescrita.
 
 ```bash
-cd frontend && npm run build      # gera frontend/dist
-cd ../backend && npm run build && npm start
+# instale o CLI: https://docs.turso.tech/cli/installation
+turso auth signup
+turso db create manutencao-capricche
+
+turso db show manutencao-capricche --url      # -> libsql://...
+turso db tokens create manutencao-capricche   # -> eyJhbGciOi...
 ```
 
-Quando `frontend/dist` existe, o Express passa a servir a interface junto com a API —
-tudo em <http://localhost:3333>, em um único processo.
+Guarde os dois valores.
+
+### 2. Configurar o projeto na Vercel
+
+Ao importar o repositório, deixe as configurações de build como estão — o `vercel.json`
+já define tudo (comando de build, pasta de saída e a função da API).
+
+Em **Settings → Environment Variables**, adicione:
+
+| Chave | Valor |
+|---|---|
+| `TURSO_DATABASE_URL` | a URL `libsql://...` do passo 1 |
+| `TURSO_AUTH_TOKEN` | o token do passo 1 |
+| `FUSO_HORARIO` | `-3` (horário de Brasília) |
+| `SEED_ON_EMPTY` | `true` no primeiro deploy; depois troque para `false` |
+
+Clique em **Deploy**.
+
+### 3. Depois do primeiro deploy
+
+O banco sobe com os dados de exemplo. Quando cadastrar as máquinas de verdade:
+
+1. Apague as ocorrências e os cadastros de exemplo pela própria tela de Cadastros.
+2. Mude `SEED_ON_EMPTY` para `false` e faça um novo deploy — assim, se um dia o banco
+   ficar vazio, o sistema não volta a inventar dados.
+
+### Por que `FUSO_HORARIO` existe
+
+Servidor na nuvem roda em UTC. Sem esse ajuste, um chamado aberto às 14h apareceria como 17h.
+O valor é o deslocamento em horas; `-3` cobre o Brasil inteiro o ano todo, já que o horário
+de verão foi extinto em 2019.
 
 ---
 
@@ -97,11 +133,15 @@ Só entram no cálculo de horas paradas as ocorrências com **"A produção fico
 ## Estrutura
 
 ```
-app-manutencao/
+Junior-Controller/
+├── api/
+│   └── [[...slug]].ts         função da Vercel: repassa tudo para o Express
 ├── backend/
 │   ├── src/
-│   │   ├── server.ts          Express, CORS, migrações, arquivos estáticos
-│   │   ├── db.ts              conexão SQLite, executor de migrações, helpers de data/turno
+│   │   ├── app.ts             monta o Express (usado local e na Vercel)
+│   │   ├── server.ts          abre a porta (só no modo local)
+│   │   ├── db.ts              conexão, migrações, fuso e helpers de consulta
+│   │   ├── rota.ts            embrulha handlers async para o Express 4
 │   │   ├── seed.ts            dados de exemplo (npm run seed)
 │   │   └── routes/
 │   │       ├── lookups.ts     CRUD genérico dos 5 cadastros
@@ -111,24 +151,23 @@ app-manutencao/
 │   ├── sql/
 │   │   ├── schema.sql
 │   │   └── patch_ta_turnos.sql
-│   ├── package.json
-│   ├── tsconfig.json
 │   └── .env.example
-└── frontend/
-    ├── src/
-    │   ├── pages/             Painel, Ocorrencias, TaTurnos, Cadastros
-    │   ├── components/        Layout, ui, Filtros, Indicador, gráficos, formulário
-    │   └── lib/               api, formato, hooks, dados, visual
-    ├── index.html
-    ├── vite.config.ts
-    └── package.json
+├── frontend/
+│   ├── public/                logo, ícone e favicon
+│   └── src/
+│       ├── pages/             Painel, Ocorrencias, TaTurnos, Cadastros
+│       ├── components/        Layout, ui, Filtros, Indicador, gráficos, formulário
+│       └── lib/               api, formato, hooks, dados, visual
+├── package.json               workspaces + scripts
+├── vercel.json                configuração do deploy
+└── iniciar.bat                atalho para subir tudo no Windows
 ```
 
 ---
 
 ## API
 
-Base: `http://localhost:3333/api`
+Base: `/api` (mesmo domínio do site em produção; `http://localhost:3333/api` no modo local)
 
 ### Cadastros — `/lookups`
 
@@ -167,25 +206,6 @@ Base: `http://localhost:3333/api`
 
 ---
 
-## Comandos úteis
-
-```bash
-# backend
-npm run dev      # servidor com recarga automática
-npm run seed     # recarrega os dados de exemplo
-npm run build    # compila para dist/
-npm start        # roda o compilado
-
-# frontend
-npm run dev      # Vite com proxy de /api para a porta 3333
-npm run build    # gera dist/
-npm run preview  # serve o dist localmente
-```
-
-Para começar do zero, apague `backend/data/manutencao.db` e suba o servidor de novo.
-
----
-
 ## Identidade visual
 
 O visual é derivado do logo da Capricche:
@@ -218,9 +238,25 @@ também, então sem esse fundo claro a marca se perderia no degradê. Se um dia 
 claro, dá para tirar o `bg-white` em `frontend/src/components/Layout.tsx`, na função
 `MarcaCompleta`.
 
-As cores da marca ficam todas em `frontend/src/index.css`, no bloco `@theme`
+As cores da marca ficam em `frontend/src/index.css`, no bloco `@theme`
 (`--color-marca-*` e `--color-ouro-*`); a paleta dos gráficos está em
 `frontend/src/lib/visual.ts`.
+
+---
+
+## Comandos
+
+```bash
+npm install         # instala backend e frontend de uma vez (workspaces)
+npm run dev:api     # API com recarga automática
+npm run dev:web     # site com recarga automática
+npm run build       # compila o frontend para frontend/dist
+npm run seed        # recarrega os dados de exemplo
+npm run reset       # apaga o banco local e recarrega os exemplos
+npm run verificar   # build do frontend + checagem de tipos do backend
+```
+
+Para começar do zero no ambiente local, apague `backend/data/` e suba a API de novo.
 
 ---
 
@@ -233,10 +269,3 @@ As cores da marca ficam todas em `frontend/src/index.css`, no bloco `@theme`
 4. **TA por Turno → Meta**: defina o tempo máximo aceitável para a manutenção chegar na máquina.
 5. **Disponibilidade**: se a fábrica não roda 24 h, chame `/api/indicadores/resumo?horas_dia=16`
    ou ajuste o padrão em `backend/src/routes/indicadores.ts`.
-
-## Migrando para outro banco
-
-O SQLite guarda tudo em um único arquivo, o que é ótimo para começar, mas serializa as
-escritas — se vários terminais forem registrar paradas ao mesmo tempo, vale trocar por
-PostgreSQL. As consultas usam `julianday()` e `strftime()`, então a migração concentra-se
-em `src/db.ts` e nas funções de data das rotas.

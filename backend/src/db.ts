@@ -1,4 +1,4 @@
-import Database from 'better-sqlite3';
+import { createClient, type InArgs, type Row } from '@libsql/client';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -8,28 +8,110 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 /** Raiz da pasta backend/ (src/.. -> backend) */
 export const ROOT = path.resolve(__dirname, '..');
 
-const DB_FILE = path.resolve(ROOT, process.env.DB_FILE || 'data/manutencao.db');
+/* ---------------------------------------------------------------------
+ * Fuso horario
+ *
+ * Na nuvem o servidor roda em UTC, entao "localtime" do SQLite daria um
+ * horario 3h adiantado para o Brasil. Guardamos o deslocamento num lugar
+ * so e usamos ele em toda consulta que precisa de "agora".
+ * O Brasil nao usa mais horario de verao, entao -3 vale o ano inteiro.
+ * ------------------------------------------------------------------ */
+const FUSO_BRUTO = (process.env.FUSO_HORARIO ?? '-3').trim();
+if (!/^[+-]?\d{1,2}(\.\d+)?$/.test(FUSO_BRUTO)) {
+  throw new Error(`FUSO_HORARIO invalido: "${FUSO_BRUTO}". Use um numero de horas, ex.: -3`);
+}
+const FUSO_HORAS = Number(FUSO_BRUTO);
+const FUSO_SQL = `${FUSO_HORAS >= 0 ? '+' : ''}${FUSO_HORAS} hours`;
 
-fs.mkdirSync(path.dirname(DB_FILE), { recursive: true });
+/** Expressao SQL de "agora" no fuso da fabrica. */
+export const AGORA_SQL = `datetime('now', '${FUSO_SQL}')`;
+/** Expressao SQL de "hoje" no fuso da fabrica. */
+export const HOJE_SQL = `date('now', '${FUSO_SQL}')`;
 
-export const db = new Database(DB_FILE);
-db.pragma('journal_mode = WAL');
-db.pragma('foreign_keys = ON');
+/** Data/hora atual no fuso da fabrica, no formato do banco. */
+export function agora(): string {
+  const d = new Date(Date.now() + FUSO_HORAS * 3_600_000);
+  return d.toISOString().slice(0, 19).replace('T', ' ');
+}
+
+/** Data de hoje (ou N dias atras) no fuso da fabrica. */
+export function diaISO(diasAtras = 0): string {
+  const d = new Date(Date.now() + FUSO_HORAS * 3_600_000 - diasAtras * 86_400_000);
+  return d.toISOString().slice(0, 10);
+}
+
+/* ---------------------------------------------------------------------
+ * Conexao
+ *
+ * Em producao aponta para o Turso (SQLite hospedado). Sem as variaveis,
+ * cai num arquivo local - e o mesmo cliente, entao o comportamento e
+ * identico na sua maquina e na nuvem.
+ * ------------------------------------------------------------------ */
+const URL_TURSO = process.env.TURSO_DATABASE_URL?.trim();
+
+function urlDoArquivoLocal(): string {
+  const arquivo = path.resolve(ROOT, process.env.DB_FILE || 'data/manutencao.db');
+  fs.mkdirSync(path.dirname(arquivo), { recursive: true });
+  // libsql espera URL: barras normais, inclusive no Windows.
+  return `file:${arquivo.replace(/\\/g, '/')}`;
+}
+
+export const usandoTurso = Boolean(URL_TURSO);
+
+export const db = createClient({
+  url: URL_TURSO || urlDoArquivoLocal(),
+  authToken: process.env.TURSO_AUTH_TOKEN,
+});
+
+/* ---------------------------------------------------------------------
+ * Helpers de consulta
+ *
+ * O libsql devolve linhas indexadas por posicao e por nome. Convertemos
+ * para objetos simples usando a lista de colunas, o que evita surpresas
+ * com chaves numericas no JSON.
+ * ------------------------------------------------------------------ */
+function paraObjeto<T>(linha: Row, colunas: string[]): T {
+  const obj: Record<string, unknown> = {};
+  colunas.forEach((nome, i) => {
+    obj[nome] = linha[i];
+  });
+  return obj as T;
+}
+
+/** Executa e devolve todas as linhas. */
+export async function todos<T = Record<string, any>>(sql: string, args: InArgs = []): Promise<T[]> {
+  const r = await db.execute({ sql, args });
+  return r.rows.map((linha) => paraObjeto<T>(linha, r.columns));
+}
+
+/** Executa e devolve a primeira linha (ou undefined). */
+export async function um<T = Record<string, any>>(
+  sql: string,
+  args: InArgs = [],
+): Promise<T | undefined> {
+  const r = await db.execute({ sql, args });
+  const linha = r.rows[0];
+  return linha ? paraObjeto<T>(linha, r.columns) : undefined;
+}
+
+/** Executa INSERT/UPDATE/DELETE. */
+export async function rodar(
+  sql: string,
+  args: InArgs = [],
+): Promise<{ alteradas: number; id: number }> {
+  const r = await db.execute({ sql, args });
+  return { alteradas: Number(r.rowsAffected), id: Number(r.lastInsertRowid ?? 0) };
+}
 
 /* ---------------------------------------------------------------------
  * Migracoes
- * Os arquivos sao aplicados na ordem da lista abaixo e registrados na
- * tabela _migrations, para nao rodarem duas vezes.
  * ------------------------------------------------------------------ */
-const MIGRATIONS = ['schema.sql', 'patch_ta_turnos.sql'];
+const MIGRACOES = ['schema.sql', 'patch_ta_turnos.sql'];
 
 /** Erros que significam "esse pedaco do patch ja existe" e podem ser ignorados. */
-const JA_APLICADO = [
-  'duplicate column name',
-  'already exists',
-];
+const JA_APLICADO = ['duplicate column name', 'already exists'];
 
-function splitStatements(sql: string): string[] {
+function separarComandos(sql: string): string[] {
   return sql
     .split('\n')
     .filter((linha) => !linha.trim().startsWith('--'))
@@ -39,37 +121,74 @@ function splitStatements(sql: string): string[] {
     .filter(Boolean);
 }
 
-export function migrate(): void {
-  db.exec(`CREATE TABLE IF NOT EXISTS _migrations (
-    arquivo    TEXT PRIMARY KEY,
-    aplicado_em TEXT NOT NULL DEFAULT (datetime('now','localtime'))
-  )`);
+/** Troca o marcador {{AGORA}} dos arquivos .sql pela expressao com fuso. */
+function aplicarFuso(sql: string): string {
+  return sql.replaceAll('{{AGORA}}', AGORA_SQL);
+}
 
-  const jaRodou = db.prepare('SELECT 1 FROM _migrations WHERE arquivo = ?');
-  const marcar = db.prepare('INSERT INTO _migrations (arquivo) VALUES (?)');
+/**
+ * Onde os .sql podem estar. Rodando local, ficam ao lado do codigo. Numa
+ * funcao serverless o codigo e empacotado e os arquivos vao para a raiz
+ * da tarefa, entao vale procurar tambem a partir do cwd.
+ */
+function candidatosSql(arquivo: string): string[] {
+  return [
+    path.join(ROOT, 'sql', arquivo),
+    path.join(process.cwd(), 'backend', 'sql', arquivo),
+    path.join(process.cwd(), 'sql', arquivo),
+  ];
+}
 
-  for (const arquivo of MIGRATIONS) {
-    if (jaRodou.get(arquivo)) continue;
+function acharSql(arquivo: string): string | null {
+  return candidatosSql(arquivo).find((c) => fs.existsSync(c)) ?? null;
+}
 
-    const caminho = path.join(ROOT, 'sql', arquivo);
-    if (!fs.existsSync(caminho)) {
-      console.warn(`[db] migracao nao encontrada, pulando: ${arquivo}`);
-      continue;
-    }
+let migracaoEmAndamento: Promise<void> | null = null;
 
-    for (const stmt of splitStatements(fs.readFileSync(caminho, 'utf8'))) {
-      try {
-        db.exec(stmt);
-      } catch (err) {
-        const msg = String((err as Error).message).toLowerCase();
-        if (JA_APLICADO.some((p) => msg.includes(p))) continue;
-        throw new Error(`Falha em ${arquivo}: ${(err as Error).message}\n--> ${stmt.slice(0, 160)}`);
+export function migrar(): Promise<void> {
+  // Em serverless varias requisicoes podem chegar juntas na primeira
+  // subida; uma promessa compartilhada evita rodar a migracao em paralelo.
+  migracaoEmAndamento ??= (async () => {
+    await db.execute(`CREATE TABLE IF NOT EXISTS _migrations (
+      arquivo     TEXT PRIMARY KEY,
+      aplicado_em TEXT NOT NULL
+    )`);
+
+    for (const arquivo of MIGRACOES) {
+      const jaRodou = await um('SELECT 1 AS ok FROM _migrations WHERE arquivo = ?', [arquivo]);
+      if (jaRodou) continue;
+
+      const caminho = acharSql(arquivo);
+      if (!caminho) {
+        throw new Error(
+          `Migracao "${arquivo}" nao encontrada. Procurei em:\n` +
+            candidatosSql(arquivo)
+              .map((c) => `  - ${c}`)
+              .join('\n'),
+        );
       }
-    }
 
-    marcar.run(arquivo);
-    console.log(`[db] migracao aplicada: ${arquivo}`);
-  }
+      for (const comando of separarComandos(aplicarFuso(fs.readFileSync(caminho, 'utf8')))) {
+        try {
+          await db.execute(comando);
+        } catch (err) {
+          const msg = String((err as Error).message).toLowerCase();
+          if (JA_APLICADO.some((p) => msg.includes(p))) continue;
+          throw new Error(
+            `Falha em ${arquivo}: ${(err as Error).message}\n--> ${comando.slice(0, 160)}`,
+          );
+        }
+      }
+
+      await rodar('INSERT INTO _migrations (arquivo, aplicado_em) VALUES (?, ?)', [
+        arquivo,
+        agora(),
+      ]);
+      console.log(`[db] migracao aplicada: ${arquivo}`);
+    }
+  })();
+
+  return migracaoEmAndamento;
 }
 
 /* ---------------------------------------------------------------------
@@ -89,26 +208,21 @@ export function toSqlDateTime(valor?: string | null): string | null {
   if (/^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/.test(v)) return v.slice(0, 19);
   const d = new Date(valor);
   if (Number.isNaN(d.getTime())) return null;
-  return toSqlDateTime(
-    `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}` +
-      ` ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`,
-  );
-}
-
-/** Data/hora atual no formato do banco (horario local). */
-export function agora(): string {
-  const linha = db.prepare(`SELECT datetime('now','localtime') AS d`).get() as { d: string };
-  return linha.d;
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())} ${p(d.getHours())}:${p(
+    d.getMinutes(),
+  )}:00`;
 }
 
 /** Descobre o turno que contem um horario 'HH:MM' (trata turno que vira o dia). */
-export function turnoDoHorario(dataHora: string | null): number | null {
+export async function turnoDoHorario(dataHora: string | null): Promise<number | null> {
   if (!dataHora) return null;
   const hhmm = dataHora.slice(11, 16);
   if (!hhmm) return null;
-  const turnos = db
-    .prepare('SELECT id, hora_inicio, hora_fim FROM turnos WHERE ativo = 1')
-    .all() as { id: number; hora_inicio: string; hora_fim: string }[];
+
+  const turnos = await todos<{ id: number; hora_inicio: string; hora_fim: string }>(
+    'SELECT id, hora_inicio, hora_fim FROM turnos WHERE ativo = 1',
+  );
 
   for (const t of turnos) {
     const viraODia = t.hora_fim <= t.hora_inicio;
