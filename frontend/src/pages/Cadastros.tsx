@@ -29,6 +29,7 @@ import {
 } from '../components/ui';
 import { api, ErroApi, MODO_NAVEGADOR } from '../lib/api';
 import { useLookups } from '../lib/dados';
+import { useAdmin } from '../lib/admin';
 import { TOM_CRITICIDADE } from '../lib/visual';
 
 /* ---------------------------------------------------------------------
@@ -72,6 +73,7 @@ const CATEGORIAS = [
 
 export function Cadastros() {
   const { lookups, carregando, erro, recarregar } = useLookups();
+  const { ehAdmin, temLogin } = useAdmin();
   const avisar = useAviso();
 
   const [abaAtiva, setAbaAtiva] = useState('maquinas');
@@ -342,9 +344,11 @@ export function Cadastros() {
         titulo="Cadastros"
         descricao="Tudo que alimenta os formulários de ocorrência: máquinas, setores, motivos de parada, equipe e turnos."
         acoes={
-          <Botao icone={<Plus className="size-4" aria-hidden />} onClick={abrirNovo}>
-            {aba.novo}
-          </Botao>
+          ehAdmin ? (
+            <Botao icone={<Plus className="size-4" aria-hidden />} onClick={abrirNovo}>
+              {aba.novo}
+            </Botao>
+          ) : null
         }
       />
 
@@ -389,6 +393,16 @@ export function Cadastros() {
         </div>
       )}
 
+      {temLogin && !ehAdmin && (
+        <div className="mb-6">
+          <Alerta tom="info" titulo="Somente leitura">
+            Cadastrar, editar e excluir são ações do administrador. Você continua podendo
+            registrar paradas, atender e concluir chamados normalmente. Para liberar esta tela,
+            entre com a senha no fim do menu lateral.
+          </Alerta>
+        </div>
+      )}
+
       <Cartao titulo={aba.rotulo} subtitulo={aba.descricao} semPadding>
         {carregando ? (
           <Carregando />
@@ -398,9 +412,11 @@ export function Cadastros() {
             titulo={aba.vazioTitulo}
             descricao="Cadastre o primeiro registro para começar a usar esta lista nos formulários."
             acao={
-              <Botao icone={<Plus className="size-4" aria-hidden />} onClick={abrirNovo}>
-                {aba.novo}
-              </Botao>
+              ehAdmin ? (
+                <Botao icone={<Plus className="size-4" aria-hidden />} onClick={abrirNovo}>
+                  {aba.novo}
+                </Botao>
+              ) : null
             }
           />
         ) : (
@@ -419,7 +435,7 @@ export function Cadastros() {
                     </th>
                   ))}
                   <th scope="col" className="px-5 py-3">Situação</th>
-                  <th scope="col" className="px-5 py-3 text-right">Ações</th>
+                  {ehAdmin && <th scope="col" className="px-5 py-3 text-right">Ações</th>}
                 </tr>
               </thead>
               <tbody className="divide-y divide-slate-100 dark:divide-slate-800">
@@ -443,17 +459,24 @@ export function Cadastros() {
                       </td>
                     ))}
                     <td className="px-5 py-3">
-                      <button
-                        type="button"
-                        onClick={() => alternarAtivo(item)}
-                        title={item.ativo === 1 ? 'Clique para inativar' : 'Clique para reativar'}
-                        className="cursor-pointer"
-                      >
+                      {ehAdmin ? (
+                        <button
+                          type="button"
+                          onClick={() => alternarAtivo(item)}
+                          title={item.ativo === 1 ? 'Clique para inativar' : 'Clique para reativar'}
+                          className="cursor-pointer"
+                        >
+                          <Etiqueta tom={item.ativo === 1 ? 'sucesso' : 'neutro'}>
+                            {item.ativo === 1 ? 'Ativo' : 'Inativo'}
+                          </Etiqueta>
+                        </button>
+                      ) : (
                         <Etiqueta tom={item.ativo === 1 ? 'sucesso' : 'neutro'}>
                           {item.ativo === 1 ? 'Ativo' : 'Inativo'}
                         </Etiqueta>
-                      </button>
+                      )}
                     </td>
+                    {ehAdmin && (
                     <td className="px-5 py-3">
                       <div className="flex items-center justify-end gap-1.5">
                         <Botao
@@ -477,6 +500,7 @@ export function Cadastros() {
                         </Botao>
                       </div>
                     </td>
+                    )}
                   </tr>
                 ))}
               </tbody>

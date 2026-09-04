@@ -337,24 +337,35 @@ export function Modal({
   const caixa = useRef<HTMLDivElement>(null);
   const tituloId = useId();
 
+  /* Quem usa o Modal costuma passar uma função nova a cada render
+     (aoFechar={() => setAberto(false)}). Se o efeito abaixo dependesse
+     dela, ele rodaria de novo a cada tecla digitada — e roubaria o foco
+     do campo, jogando para o botão de fechar. Guardar num ref mantém o
+     efeito preso só à abertura do modal. */
+  const fecharRef = useRef(aoFechar);
+  fecharRef.current = aoFechar;
+
   useEffect(() => {
     if (!aberto) return;
 
     const anterior = document.activeElement as HTMLElement | null;
     document.body.style.overflow = 'hidden';
 
-    // Foca o primeiro campo utilizavel do formulario
+    // Foca o primeiro campo do formulário. Botões ficam por último: o
+    // primeiro do modal é o "X", e começar nele seria péssimo.
     const t = window.setTimeout(() => {
-      const alvo = caixa.current?.querySelector<HTMLElement>(
-        'input:not([type="hidden"]), select, textarea, button',
+      const dentro = caixa.current;
+      if (!dentro) return;
+      const campo = dentro.querySelector<HTMLElement>(
+        'input:not([type="hidden"]):not([disabled]), select:not([disabled]), textarea:not([disabled])',
       );
-      alvo?.focus();
+      (campo ?? dentro.querySelector<HTMLElement>('button:not([disabled])'))?.focus();
     }, 30);
 
     const aoTeclar = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.stopPropagation();
-        aoFechar();
+        fecharRef.current();
         return;
       }
       // Mantem o Tab girando dentro do modal
@@ -382,7 +393,7 @@ export function Modal({
       window.clearTimeout(t);
       anterior?.focus?.();
     };
-  }, [aberto, aoFechar]);
+  }, [aberto]);
 
   if (!aberto) return null;
 

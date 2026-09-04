@@ -2,6 +2,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Layout } from './components/Layout';
 import { ProvedorAvisos } from './components/ui';
 import { ProvedorLookups } from './lib/dados';
+import { ProvedorAdmin } from './lib/admin';
 import { Painel } from './pages/Painel';
 import { Ocorrencias } from './pages/Ocorrencias';
 import { TaTurnos } from './pages/TaTurnos';
@@ -11,7 +12,8 @@ export default function App() {
   return (
     <BrowserRouter>
       <ProvedorAvisos>
-        <ProvedorLookups>
+        <ProvedorAdmin>
+          <ProvedorLookups>
           <Layout>
             <Routes>
               <Route path="/" element={<Painel />} />
@@ -21,7 +23,8 @@ export default function App() {
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Layout>
-        </ProvedorLookups>
+          </ProvedorLookups>
+        </ProvedorAdmin>
       </ProvedorAvisos>
     </BrowserRouter>
   );

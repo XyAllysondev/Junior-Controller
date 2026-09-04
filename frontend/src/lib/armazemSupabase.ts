@@ -14,6 +14,7 @@
 import { ErroApi } from './api';
 import { bancoVazio, normalizar, type Banco, type Registro } from './calculos';
 import type { Armazem } from './armazem';
+import { estaLogado, tokenValido } from './auth';
 
 const URL_BASE = (import.meta.env.VITE_SUPABASE_URL as string | undefined)?.replace(/\/+$/, '');
 const CHAVE = import.meta.env.VITE_SUPABASE_KEY as string | undefined;
@@ -30,13 +31,33 @@ const TABELAS_TODAS = [
   'ocorrencias',
 ] as const;
 
-function cabecalhos(extras: Record<string, string> = {}): Record<string, string> {
+/**
+ * Com administrador logado mandamos o token dele; sem ninguém logado, a
+ * própria chave publishable. É essa diferença que o Postgres enxerga para
+ * liberar (ou negar) cadastros e exclusões.
+ */
+async function cabecalhos(extras: Record<string, string> = {}): Promise<Record<string, string>> {
+  const token = await tokenValido();
   return {
     apikey: CHAVE!,
-    Authorization: `Bearer ${CHAVE}`,
+    Authorization: `Bearer ${token ?? CHAVE}`,
     'Content-Type': 'application/json',
     ...extras,
   };
+}
+
+/**
+ * Quando a regra de acesso do Postgres barra um UPDATE ou um DELETE, ele
+ * não devolve erro: apenas não altera nada. Sem isto a tela diria
+ * "excluído" sem ter excluído.
+ */
+function erroPermissao(acao: string): ErroApi {
+  return new ErroApi(
+    estaLogado()
+      ? `Não foi possível ${acao}. O banco recusou a operação para o usuário atual.`
+      : `Só o administrador pode ${acao}. Entre com a senha no menu lateral e tente de novo.`,
+    403,
+  );
 }
 
 /** Traduz os erros do PostgREST para algo que a pessoa entenda. */
@@ -63,11 +84,15 @@ function traduzirErro(status: number, corpo: any): ErroApi {
   if (codigo === '23514' || msg.includes('violates check constraint')) {
     return new ErroApi('Algum valor não é aceito pelo banco. Confira os campos.', 400);
   }
-  if (status === 401 || status === 403) {
+  if (status === 401 || status === 403 || codigo === '42501') {
+    // O banco barrou a operação. Quase sempre é falta de administrador
+    // logado, não configuração errada — então a mensagem vai por aí.
     return new ErroApi(
-      'O Supabase recusou o acesso. Confira a chave (VITE_SUPABASE_KEY) e as políticas de ' +
-        'segurança (RLS) das tabelas.',
-      status,
+      estaLogado()
+        ? 'O banco recusou esta operação para o usuário atual. Confira as políticas de ' +
+          'segurança (RLS) das tabelas no Supabase.'
+        : 'Esta ação é só do administrador. Entre com a senha no menu lateral e tente de novo.',
+      403,
     );
   }
   return new ErroApi(msg || `Falha ao falar com o Supabase (${status}).`, status);
@@ -85,7 +110,7 @@ async function requisicao(caminho: string, init?: RequestInit): Promise<any> {
   try {
     resposta = await fetch(`${URL_BASE}/rest/v1/${caminho}`, {
       ...init,
-      headers: cabecalhos(init?.headers as Record<string, string>),
+      headers: await cabecalhos(init?.headers as Record<string, string>),
     });
   } catch {
     throw new ErroApi(
@@ -151,11 +176,17 @@ export const armazemSupabase: Armazem = {
       headers: { Prefer: 'return=representation' },
       body: JSON.stringify(dados),
     });
-    if (!linhas?.length) throw new ErroApi('Registro não encontrado', 404);
+    // Zero linhas aqui quase sempre é a regra de acesso barrando: o
+    // roteador só chega neste ponto depois de encontrar o registro.
+    if (!linhas?.length) throw erroPermissao('alterar este registro');
     return padronizarDatas(linhas[0]);
   },
 
   async excluir(tabela, id) {
-    await requisicao(`${tabela}?id=eq.${id}`, { method: 'DELETE' });
+    const linhas = await requisicao(`${tabela}?id=eq.${id}`, {
+      method: 'DELETE',
+      headers: { Prefer: 'return=representation' },
+    });
+    if (!linhas?.length) throw erroPermissao('excluir este registro');
   },
 };

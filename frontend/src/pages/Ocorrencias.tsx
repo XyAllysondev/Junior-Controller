@@ -31,6 +31,7 @@ import {
 } from '../components/ui';
 import { api, ErroApi, type ListaOcorrencias, type Ocorrencia, type StatusOcorrencia } from '../lib/api';
 import { somenteAtivos, useLookups } from '../lib/dados';
+import { useAdmin } from '../lib/admin';
 import { useApi, useDebounce } from '../lib/hooks';
 import * as fmt from '../lib/formato';
 import { TOM_PRIORIDADE, TOM_STATUS, TOM_TIPO } from '../lib/visual';
@@ -77,6 +78,7 @@ const filtrosIniciais: FiltrosLista = {
 
 export function Ocorrencias() {
   const { lookups } = useLookups();
+  const { ehAdmin } = useAdmin();
   const avisar = useAviso();
 
   const [filtros, setFiltros] = useState<FiltrosLista>(filtrosIniciais);
@@ -396,6 +398,7 @@ export function Ocorrencias() {
                             setFormAberto(true);
                           }}
                           aoExcluir={() => setParaExcluir(o)}
+                          podeExcluir={ehAdmin}
                         />
                       </td>
                     </tr>
@@ -448,6 +451,7 @@ export function Ocorrencias() {
                       setFormAberto(true);
                     }}
                     aoExcluir={() => setParaExcluir(o)}
+                    podeExcluir={ehAdmin}
                   />
                 </li>
               ))}
@@ -534,12 +538,15 @@ function Acoes({
   aoConcluir,
   aoEditar,
   aoExcluir,
+  podeExcluir,
 }: {
   o: Ocorrencia;
   aoAtender: () => void;
   aoConcluir: () => void;
   aoEditar: () => void;
   aoExcluir: () => void;
+  /** Apagar ocorrência é ação de administrador. */
+  podeExcluir: boolean;
 }) {
   return (
     <div className="flex flex-wrap items-center justify-end gap-1.5 lg:flex-nowrap">
@@ -573,16 +580,18 @@ function Acoes({
       >
         <SquarePen className="size-4" aria-hidden />
       </Botao>
-      <Botao
-        tamanho="pequeno"
-        variante="fantasma"
-        onClick={aoExcluir}
-        aria-label={`Excluir ocorrência ${o.id}`}
-        title="Excluir"
-        className="text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
-      >
-        <Trash2 className="size-4" aria-hidden />
-      </Botao>
+      {podeExcluir && (
+        <Botao
+          tamanho="pequeno"
+          variante="fantasma"
+          onClick={aoExcluir}
+          aria-label={`Excluir ocorrência ${o.id}`}
+          title="Excluir"
+          className="text-rose-600 hover:bg-rose-50 dark:text-rose-400 dark:hover:bg-rose-500/10"
+        >
+          <Trash2 className="size-4" aria-hidden />
+        </Botao>
+      )}
     </div>
   );
 }

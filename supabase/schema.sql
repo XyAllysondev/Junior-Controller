@@ -137,13 +137,16 @@ on conflict (nome) do nothing;
 -- O Supabase exige politicas explicitas: com RLS ligada e nenhuma
 -- politica, ninguem le nada.
 --
--- ATENCAO: as politicas abaixo liberam leitura e escrita para qualquer
--- pessoa que tenha o endereco do site (papel "anon"). E o modo mais
--- simples e serve para uma ferramenta interna cujo link nao e divulgado,
--- mas nao ha login: quem tiver o link, mexe.
+-- A divisao e:
+--   qualquer pessoa (anon)  -> ver tudo, registrar parada, atender,
+--                              concluir e editar ocorrencia
+--   administrador logado    -> mexer nos cadastros e apagar registros
 --
--- Para exigir login depois, troque "to anon, authenticated" por
--- "to authenticated" em todas as politicas e ative o Supabase Auth.
+-- Isto e a trava de verdade: quem barra e o Postgres, nao a tela.
+-- Esconder botoes no site e so conveniencia.
+--
+-- Para o login funcionar, crie UM usuario em
+-- Authentication -> Users -> Add user (marque "Auto Confirm User").
 -- =====================================================================
 alter table setores     enable row level security;
 alter table maquinas    enable row level security;
@@ -155,13 +158,47 @@ alter table ocorrencias enable row level security;
 do $$
 declare
   t text;
+  tabelas text[] := array['setores','maquinas','motivos','tecnicos','turnos','ocorrencias'];
 begin
-  foreach t in array array['setores','maquinas','motivos','tecnicos','turnos','ocorrencias']
-  loop
+  -- Limpa politicas de versoes anteriores, para este arquivo poder rodar
+  -- de novo sem duplicar nada.
+  foreach t in array tabelas loop
     execute format('drop policy if exists %I on %I', 'acesso_total_' || t, t);
+    execute format('drop policy if exists %I on %I', 'ler_' || t, t);
+    execute format('drop policy if exists %I on %I', 'admin_inserir_' || t, t);
+    execute format('drop policy if exists %I on %I', 'admin_atualizar_' || t, t);
+    execute format('drop policy if exists %I on %I', 'admin_apagar_' || t, t);
+    execute format('drop policy if exists %I on %I', 'todos_inserir_' || t, t);
+    execute format('drop policy if exists %I on %I', 'todos_atualizar_' || t, t);
+  end loop;
+
+  -- Leitura: liberada para todos, em todas as tabelas.
+  foreach t in array tabelas loop
     execute format(
-      'create policy %I on %I for all to anon, authenticated using (true) with check (true)',
-      'acesso_total_' || t, t
+      'create policy %I on %I for select to anon, authenticated using (true)',
+      'ler_' || t, t
+    );
+  end loop;
+
+  -- Cadastros: so administrador escreve.
+  foreach t in array array['setores','maquinas','motivos','tecnicos','turnos'] loop
+    execute format(
+      'create policy %I on %I for insert to authenticated with check (true)',
+      'admin_inserir_' || t, t
+    );
+    execute format(
+      'create policy %I on %I for update to authenticated using (true) with check (true)',
+      'admin_atualizar_' || t, t
+    );
+    execute format(
+      'create policy %I on %I for delete to authenticated using (true)',
+      'admin_apagar_' || t, t
     );
   end loop;
 end $$;
+
+-- Ocorrencias: o chao de fabrica registra e atualiza sem login.
+-- Apagar continua sendo do administrador, porque some com o historico.
+create policy todos_inserir_ocorrencias   on ocorrencias for insert to anon, authenticated with check (true);
+create policy todos_atualizar_ocorrencias on ocorrencias for update to anon, authenticated using (true) with check (true);
+create policy admin_apagar_ocorrencias    on ocorrencias for delete to authenticated using (true);

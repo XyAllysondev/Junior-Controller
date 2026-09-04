@@ -4,6 +4,7 @@ import { ClipboardList, Database, Gauge, Menu, Moon, Sun, Timer, X } from 'lucid
 import { cx } from './ui';
 import { useTema } from '../lib/hooks';
 import { NOME_DO_MODO } from '../lib/api';
+import { Administrador } from './Administrador';
 
 const MENU = [
   { para: '/', rotulo: 'Painel', descricao: 'Indicadores e gráficos', icone: Gauge },
@@ -146,7 +147,9 @@ export function Layout({ children }: { children: ReactNode }) {
           ))}
         </nav>
 
-        <div className="p-3">
+        <div className="space-y-2 p-3">
+          <Administrador />
+
           <button
             type="button"
             onClick={alternarTema}
