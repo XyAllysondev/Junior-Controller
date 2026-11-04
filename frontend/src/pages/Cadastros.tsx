@@ -4,6 +4,7 @@ import {
   Clock,
   Cog,
   ListTree,
+  Package,
   Plus,
   Save,
   SquarePen,
@@ -13,6 +14,7 @@ import {
 
 import { TituloPagina } from '../components/Layout';
 import { GerenciarDados } from '../components/GerenciarDados';
+import { CadastroPecas, usePecas } from '../components/CadastroPecas';
 import {
   Alerta,
   Botao,
@@ -83,6 +85,8 @@ export function Cadastros() {
   const [valores, setValores] = useState<Record<string, string | undefined>>({});
   const [salvando, setSalvando] = useState(false);
   const [erroForm, setErroForm] = useState<string | null>(null);
+  const naPecas = abaAtiva === 'pecas';
+  const estadoPecas = usePecas(naPecas);
 
   const nomeSetor = (id: number | null) =>
     lookups.setores.find((s) => s.id === id)?.nome ?? '—';
@@ -258,7 +262,8 @@ export function Cadastros() {
     [lookups],
   );
 
-  const aba = ABAS.find((a) => a.chave === abaAtiva)!;
+  // A aba Peças tem tela própria (CadastroPecas); as demais usam a configuração acima.
+  const aba = ABAS.find((a) => a.chave === abaAtiva) ?? ABAS[0];
   const itens = (lookups as any)[aba.chave] as Record<string, any>[];
 
   function abrirNovo() {
@@ -342,9 +347,9 @@ export function Cadastros() {
     <>
       <TituloPagina
         titulo="Cadastros"
-        descricao="Tudo que alimenta os formulários de ocorrência: máquinas, setores, motivos de parada, equipe e turnos."
+        descricao="Tudo que alimenta os formulários de ocorrência: máquinas, setores, motivos de parada, equipe e turnos — e o estoque de peças."
         acoes={
-          ehAdmin ? (
+          ehAdmin && !naPecas ? (
             <Botao icone={<Plus className="size-4" aria-hidden />} onClick={abrirNovo}>
               {aba.novo}
             </Botao>
@@ -385,6 +390,32 @@ export function Cadastros() {
             </span>
           </button>
         ))}
+        <button
+          role="tab"
+          aria-selected={naPecas}
+          onClick={() => setAbaAtiva('pecas')}
+          className={cx(
+            'inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors',
+            naPecas
+              ? 'bg-marca-600 text-white shadow-sm'
+              : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+          )}
+        >
+          <Package className="size-4" aria-hidden />
+          Peças
+          {estadoPecas.pecas && (
+            <span
+              className={cx(
+                'rounded-md px-1.5 py-0.5 text-xs font-bold tabular-nums',
+                naPecas
+                  ? 'bg-white/20'
+                  : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+              )}
+            >
+              {estadoPecas.pecas.length.toLocaleString('pt-BR')}
+            </span>
+          )}
+        </button>
       </div>
 
       {erro && (
@@ -403,6 +434,9 @@ export function Cadastros() {
         </div>
       )}
 
+      {naPecas ? (
+        <CadastroPecas estado={estadoPecas} ehAdmin={ehAdmin} />
+      ) : (
       <Cartao titulo={aba.rotulo} subtitulo={aba.descricao} semPadding>
         {carregando ? (
           <Carregando />
@@ -508,6 +542,7 @@ export function Cadastros() {
           </div>
         )}
       </Cartao>
+      )}
 
       {MODO_NAVEGADOR && <GerenciarDados aoMudar={recarregar} />}
 

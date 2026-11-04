@@ -202,3 +202,39 @@ end $$;
 create policy todos_inserir_ocorrencias   on ocorrencias for insert to anon, authenticated with check (true);
 create policy todos_atualizar_ocorrencias on ocorrencias for update to anon, authenticated using (true) with check (true);
 create policy admin_apagar_ocorrencias    on ocorrencias for delete to authenticated using (true);
+
+-- =====================================================================
+-- Pecas (estoque de pecas da manutencao)
+--
+-- Fica fora das ocorrencias de proposito: e um catalogo grande (milhares
+-- de linhas) que o site carrega so quando a aba Pecas e aberta.
+-- Linha e maquina sao opcionais: servem para dizer onde a peca e usada.
+--
+-- Para carregar a planilha de pecas, rode supabase/importar_pecas.sql.
+-- =====================================================================
+create table if not exists pecas (
+  id         bigint generated always as identity primary key,
+  codigo     text    not null unique,
+  descricao  text    not null,
+  posicao    text,
+  categoria  text,
+  linha      text,
+  maquina_id bigint  references maquinas(id) on delete set null,
+  ativo      smallint not null default 1,
+  criado_em  timestamp not null default (now() at time zone 'America/Sao_Paulo')
+);
+
+create index if not exists idx_pecas_maquina   on pecas(maquina_id);
+create index if not exists idx_pecas_categoria on pecas(categoria);
+
+alter table pecas enable row level security;
+
+drop policy if exists ler_pecas             on pecas;
+drop policy if exists admin_inserir_pecas   on pecas;
+drop policy if exists admin_atualizar_pecas on pecas;
+drop policy if exists admin_apagar_pecas    on pecas;
+
+create policy ler_pecas             on pecas for select to anon, authenticated using (true);
+create policy admin_inserir_pecas   on pecas for insert to authenticated with check (true);
+create policy admin_atualizar_pecas on pecas for update to authenticated using (true) with check (true);
+create policy admin_apagar_pecas    on pecas for delete to authenticated using (true);

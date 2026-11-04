@@ -98,7 +98,7 @@ function traduzirErro(status: number, corpo: any): ErroApi {
   return new ErroApi(msg || `Falha ao falar com o Supabase (${status}).`, status);
 }
 
-async function requisicao(caminho: string, init?: RequestInit): Promise<any> {
+export async function requisicao(caminho: string, init?: RequestInit): Promise<any> {
   if (!supabaseConfigurado) {
     throw new ErroApi(
       'Supabase não configurado: faltam VITE_SUPABASE_URL e VITE_SUPABASE_KEY.',
