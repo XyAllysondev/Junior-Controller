@@ -15,6 +15,7 @@ import {
 import { TituloPagina } from '../components/Layout';
 import { GerenciarDados } from '../components/GerenciarDados';
 import { CadastroPecas, usePecas } from '../components/CadastroPecas';
+import type { TabelaPecas } from '../lib/pecas';
 import {
   Alerta,
   Botao,
@@ -85,8 +86,31 @@ export function Cadastros() {
   const [valores, setValores] = useState<Record<string, string | undefined>>({});
   const [salvando, setSalvando] = useState(false);
   const [erroForm, setErroForm] = useState<string | null>(null);
-  const naPecas = abaAtiva === 'pecas';
-  const estadoPecas = usePecas(naPecas);
+  // Os estoques de peças têm tela própria (CadastroPecas), um por tabela.
+  const naPecas = abaAtiva === 'pecas' || abaAtiva === 'pecas_mesanino';
+  const estadoPecas = usePecas(abaAtiva === 'pecas', 'pecas');
+  const estadoMesanino = usePecas(abaAtiva === 'pecas_mesanino', 'pecas_mesanino');
+  const ESTOQUES: {
+    chave: TabelaPecas;
+    rotulo: string;
+    subtitulo: string;
+    estado: typeof estadoPecas;
+  }[] = [
+    {
+      chave: 'pecas',
+      rotulo: 'Peças',
+      subtitulo:
+        'Estoque de peças da manutenção: onde fica no almoxarifado e em qual linha e máquina é usada.',
+      estado: estadoPecas,
+    },
+    {
+      chave: 'pecas_mesanino',
+      rotulo: 'Peças Céu/Mesanino',
+      subtitulo: 'Peças guardadas no céu/mesanino: posição, linha e máquina onde são usadas.',
+      estado: estadoMesanino,
+    },
+  ];
+  const estoqueAtivo = ESTOQUES.find((e) => e.chave === abaAtiva);
 
   const nomeSetor = (id: number | null) =>
     lookups.setores.find((s) => s.id === id)?.nome ?? '—';
@@ -390,32 +414,35 @@ export function Cadastros() {
             </span>
           </button>
         ))}
-        <button
-          role="tab"
-          aria-selected={naPecas}
-          onClick={() => setAbaAtiva('pecas')}
-          className={cx(
-            'inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors',
-            naPecas
-              ? 'bg-marca-600 text-white shadow-sm'
-              : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
-          )}
-        >
-          <Package className="size-4" aria-hidden />
-          Peças
-          {estadoPecas.pecas && (
-            <span
-              className={cx(
-                'rounded-md px-1.5 py-0.5 text-xs font-bold tabular-nums',
-                naPecas
-                  ? 'bg-white/20'
-                  : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
-              )}
-            >
-              {estadoPecas.pecas.length.toLocaleString('pt-BR')}
-            </span>
-          )}
-        </button>
+        {ESTOQUES.map((e) => (
+          <button
+            key={e.chave}
+            role="tab"
+            aria-selected={abaAtiva === e.chave}
+            onClick={() => setAbaAtiva(e.chave)}
+            className={cx(
+              'inline-flex items-center gap-2 rounded-xl px-4 py-2.5 text-sm font-semibold transition-colors',
+              abaAtiva === e.chave
+                ? 'bg-marca-600 text-white shadow-sm'
+                : 'text-slate-600 hover:bg-slate-100 dark:text-slate-300 dark:hover:bg-slate-800',
+            )}
+          >
+            <Package className="size-4" aria-hidden />
+            {e.rotulo}
+            {e.estado.pecas && (
+              <span
+                className={cx(
+                  'rounded-md px-1.5 py-0.5 text-xs font-bold tabular-nums',
+                  abaAtiva === e.chave
+                    ? 'bg-white/20'
+                    : 'bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400',
+                )}
+              >
+                {e.estado.pecas.length.toLocaleString('pt-BR')}
+              </span>
+            )}
+          </button>
+        ))}
       </div>
 
       {erro && (
@@ -435,7 +462,13 @@ export function Cadastros() {
       )}
 
       {naPecas ? (
-        <CadastroPecas estado={estadoPecas} ehAdmin={ehAdmin} />
+        <CadastroPecas
+          key={estoqueAtivo!.chave}
+          estado={estoqueAtivo!.estado}
+          ehAdmin={ehAdmin}
+          titulo={estoqueAtivo!.rotulo}
+          subtitulo={estoqueAtivo!.subtitulo}
+        />
       ) : (
       <Cartao titulo={aba.rotulo} subtitulo={aba.descricao} semPadding>
         {carregando ? (

@@ -17,7 +17,7 @@ import {
 } from './ui';
 import { ErroApi } from '../lib/api';
 import { useLookups } from '../lib/dados';
-import { armazemPecas, limparPeca, type Peca } from '../lib/pecas';
+import { armazemPecas, limparPeca, type Peca, type TabelaPecas } from '../lib/pecas';
 
 const POR_PAGINA = 50;
 
@@ -27,13 +27,19 @@ const SEM_ACENTO = (s: string) =>
     .replace(/[̀-ͯ]/g, '')
     .toLowerCase();
 
-function mensagemErro(e: unknown, padrao: string): string {
+/** Arquivo que cria e carrega cada tabela de peças no Supabase. */
+const SQL_DA_TABELA: Record<TabelaPecas, string> = {
+  pecas: 'supabase/importar_pecas.sql',
+  pecas_mesanino: 'supabase/importar_pecas_mesanino.sql',
+};
+
+function mensagemErro(e: unknown, padrao: string, tabela: TabelaPecas): string {
   if (!(e instanceof ErroApi)) return padrao;
   // Tabela ainda não criada no Supabase: aponta o arquivo certo.
   if (e.status === 503 && e.message.includes('tabelas')) {
     return (
-      'A tabela de peças ainda não existe no Supabase. Abra o SQL Editor do projeto e rode o ' +
-      'arquivo supabase/importar_pecas.sql do repositório.'
+      'Esta tabela de peças ainda não existe no Supabase. Abra o SQL Editor do projeto e rode o ' +
+      `arquivo ${SQL_DA_TABELA[tabela]} do repositório.`
     );
   }
   if (e.status === 409) return 'Já existe outra peça com esse código.';
@@ -44,7 +50,7 @@ function mensagemErro(e: unknown, padrao: string): string {
  * Carrega as peças só quando a aba é aberta pela primeira vez, e mantém
  * a lista em memória enquanto a tela de Cadastros estiver aberta.
  * ------------------------------------------------------------------ */
-export function usePecas(ativo: boolean) {
+export function usePecas(ativo: boolean, tabela: TabelaPecas) {
   const [pecas, setPecas] = useState<Peca[] | null>(null);
   const [erro, setErro] = useState<string | null>(null);
   const [carregando, setCarregando] = useState(false);
@@ -53,28 +59,38 @@ export function usePecas(ativo: boolean) {
     setCarregando(true);
     setErro(null);
     try {
-      const armazem = await armazemPecas();
+      const armazem = await armazemPecas(tabela);
       setPecas(await armazem.listar());
     } catch (e) {
-      setErro(mensagemErro(e, 'Não foi possível carregar as peças.'));
+      setErro(mensagemErro(e, 'Não foi possível carregar as peças.', tabela));
     } finally {
       setCarregando(false);
     }
-  }, []);
+  }, [tabela]);
 
   useEffect(() => {
     if (ativo && pecas === null && !carregando && !erro) void recarregar();
   }, [ativo, pecas, carregando, erro, recarregar]);
 
-  return { pecas, setPecas, erro, carregando, recarregar };
+  return { tabela, pecas, setPecas, erro, carregando, recarregar };
 }
 
 type EstadoPecas = ReturnType<typeof usePecas>;
 
 const VAZIO = { codigo: '', descricao: '', posicao: '', categoria: '', linha: '', maquina_id: '' };
 
-export function CadastroPecas({ estado, ehAdmin }: { estado: EstadoPecas; ehAdmin: boolean }) {
-  const { pecas, setPecas, erro, carregando, recarregar } = estado;
+export function CadastroPecas({
+  estado,
+  ehAdmin,
+  titulo,
+  subtitulo,
+}: {
+  estado: EstadoPecas;
+  ehAdmin: boolean;
+  titulo: string;
+  subtitulo: string;
+}) {
+  const { tabela, pecas, setPecas, erro, carregando, recarregar } = estado;
   const { lookups } = useLookups();
   const avisar = useAviso();
 
@@ -168,7 +184,7 @@ export function CadastroPecas({ estado, ehAdmin }: { estado: EstadoPecas; ehAdmi
     setSalvando(true);
     setErroForm(null);
     try {
-      const armazem = await armazemPecas();
+      const armazem = await armazemPecas(tabela);
       if (editando) {
         const salva = await armazem.atualizar(editando.id, dados);
         setPecas((atual) => (atual ?? []).map((p) => (p.id === salva.id ? salva : p)));
@@ -180,7 +196,7 @@ export function CadastroPecas({ estado, ehAdmin }: { estado: EstadoPecas; ehAdmi
       }
       setFormAberto(false);
     } catch (e) {
-      setErroForm(mensagemErro(e, 'Não foi possível salvar.'));
+      setErroForm(mensagemErro(e, 'Não foi possível salvar.', tabela));
     } finally {
       setSalvando(false);
     }
@@ -188,25 +204,25 @@ export function CadastroPecas({ estado, ehAdmin }: { estado: EstadoPecas; ehAdmi
 
   async function alternarAtivo(p: Peca) {
     try {
-      const armazem = await armazemPecas();
+      const armazem = await armazemPecas(tabela);
       const salva = await armazem.atualizar(p.id, { ativo: p.ativo === 1 ? 0 : 1 });
       setPecas((atual) => (atual ?? []).map((x) => (x.id === salva.id ? salva : x)));
       avisar(salva.ativo === 1 ? 'Peça reativada.' : 'Peça inativada.');
     } catch (e) {
-      avisar(mensagemErro(e, 'Falha ao alterar a situação.'), 'erro');
+      avisar(mensagemErro(e, 'Falha ao alterar a situação.', tabela), 'erro');
     }
   }
 
   async function excluir() {
     if (!paraExcluir) return;
     try {
-      const armazem = await armazemPecas();
+      const armazem = await armazemPecas(tabela);
       await armazem.excluir(paraExcluir.id);
       setPecas((atual) => (atual ?? []).filter((p) => p.id !== paraExcluir.id));
       avisar('Peça excluída.');
       setParaExcluir(null);
     } catch (e) {
-      avisar(mensagemErro(e, 'Falha ao excluir.'), 'erro');
+      avisar(mensagemErro(e, 'Falha ao excluir.', tabela), 'erro');
     }
   }
 
@@ -215,8 +231,8 @@ export function CadastroPecas({ estado, ehAdmin }: { estado: EstadoPecas; ehAdmi
   return (
     <>
       <Cartao
-        titulo="Peças"
-        subtitulo="Estoque de peças da manutenção: onde fica no almoxarifado e em qual linha e máquina é usada."
+        titulo={titulo}
+        subtitulo={subtitulo}
         acao={
           ehAdmin ? (
             <Botao icone={<Plus className="size-4" aria-hidden />} onClick={abrirNovo}>
@@ -442,7 +458,7 @@ export function CadastroPecas({ estado, ehAdmin }: { estado: EstadoPecas; ehAdmi
             </Botao>
             <Botao
               type="submit"
-              form="form-peca"
+              form={`form-peca-${tabela}`}
               carregando={salvando}
               icone={<Save className="size-4" aria-hidden />}
             >
@@ -451,7 +467,7 @@ export function CadastroPecas({ estado, ehAdmin }: { estado: EstadoPecas; ehAdmi
           </>
         }
       >
-        <form id="form-peca" onSubmit={salvar} className="space-y-4" noValidate>
+        <form id={`form-peca-${tabela}`} onSubmit={salvar} className="space-y-4" noValidate>
           {erroForm && <Alerta>{erroForm}</Alerta>}
 
           <div className="grid gap-4 sm:grid-cols-2">
@@ -494,12 +510,12 @@ export function CadastroPecas({ estado, ehAdmin }: { estado: EstadoPecas; ehAdmi
                 <>
                   <Entrada
                     id={id}
-                    list="lista-categorias-pecas"
+                    list={`lista-categorias-pecas-${tabela}`}
                     value={valores.categoria}
                     placeholder="ELETRICA"
                     onChange={(e) => definir('categoria', e.target.value)}
                   />
-                  <datalist id="lista-categorias-pecas">
+                  <datalist id={`lista-categorias-pecas-${tabela}`}>
                     {categorias.map((c) => (
                       <option key={c} value={c} />
                     ))}
@@ -512,11 +528,11 @@ export function CadastroPecas({ estado, ehAdmin }: { estado: EstadoPecas; ehAdmi
                 <>
                   <Entrada
                     id={id}
-                    list="lista-linhas-pecas"
+                    list={`lista-linhas-pecas-${tabela}`}
                     value={valores.linha}
                     onChange={(e) => definir('linha', e.target.value)}
                   />
-                  <datalist id="lista-linhas-pecas">
+                  <datalist id={`lista-linhas-pecas-${tabela}`}>
                     {linhas.map((l) => (
                       <option key={l} value={l} />
                     ))}

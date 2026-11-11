@@ -242,3 +242,37 @@ create policy ler_pecas             on pecas for select to anon, authenticated u
 create policy admin_inserir_pecas   on pecas for insert to authenticated with check (true);
 create policy admin_atualizar_pecas on pecas for update to authenticated using (true) with check (true);
 create policy admin_apagar_pecas    on pecas for delete to authenticated using (true);
+
+-- =====================================================================
+-- Pecas Ceu/Mesanino
+--
+-- Segundo estoque, com o mesmo formato da tabela pecas, mas independente:
+-- posicao, linha, maquina e situacao de cada peca podem ser diferentes.
+-- Para carregar a planilha nele, rode supabase/importar_pecas_mesanino.sql.
+-- =====================================================================
+create table if not exists pecas_mesanino (
+  id         bigint generated always as identity primary key,
+  codigo     text    not null unique,
+  descricao  text    not null,
+  posicao    text,
+  categoria  text,
+  linha      text,
+  maquina_id bigint  references maquinas(id) on delete set null,
+  ativo      smallint not null default 1,
+  criado_em  timestamp not null default (now() at time zone 'America/Sao_Paulo')
+);
+
+create index if not exists idx_pecas_mesanino_maquina   on pecas_mesanino(maquina_id);
+create index if not exists idx_pecas_mesanino_categoria on pecas_mesanino(categoria);
+
+alter table pecas_mesanino enable row level security;
+
+drop policy if exists ler_pecas_mesanino             on pecas_mesanino;
+drop policy if exists admin_inserir_pecas_mesanino   on pecas_mesanino;
+drop policy if exists admin_atualizar_pecas_mesanino on pecas_mesanino;
+drop policy if exists admin_apagar_pecas_mesanino    on pecas_mesanino;
+
+create policy ler_pecas_mesanino             on pecas_mesanino for select to anon, authenticated using (true);
+create policy admin_inserir_pecas_mesanino   on pecas_mesanino for insert to authenticated with check (true);
+create policy admin_atualizar_pecas_mesanino on pecas_mesanino for update to authenticated using (true) with check (true);
+create policy admin_apagar_pecas_mesanino    on pecas_mesanino for delete to authenticated using (true);

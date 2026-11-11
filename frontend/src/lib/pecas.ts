@@ -24,6 +24,9 @@ export type Peca = {
 
 export type DadosPeca = Partial<Omit<Peca, 'id' | 'criado_em'>>;
 
+/** Cada estoque de peças fica numa tabela própria, com o mesmo formato. */
+export type TabelaPecas = 'pecas' | 'pecas_mesanino';
+
 type ArmazemPecas = {
   listar(): Promise<Peca[]>;
   inserir(dados: DadosPeca): Promise<Peca>;
@@ -38,7 +41,7 @@ type ArmazemPecas = {
 /** O Supabase devolve no máximo 1000 linhas por consulta. */
 const PAGINA_SUPABASE = 1000;
 
-async function supabase(): Promise<ArmazemPecas> {
+async function supabase(tabela: TabelaPecas): Promise<ArmazemPecas> {
   const { requisicao } = await import('./armazemSupabase');
 
   const semPermissao = (acao: string) =>
@@ -53,14 +56,14 @@ async function supabase(): Promise<ArmazemPecas> {
       const todas: Peca[] = [];
       for (let inicio = 0; ; inicio += PAGINA_SUPABASE) {
         const lote = (await requisicao(
-          `pecas?select=*&order=id.asc&offset=${inicio}&limit=${PAGINA_SUPABASE}`,
+          `${tabela}?select=*&order=id.asc&offset=${inicio}&limit=${PAGINA_SUPABASE}`,
         )) as Peca[];
         todas.push(...lote);
         if (lote.length < PAGINA_SUPABASE) return todas;
       }
     },
     async inserir(dados) {
-      const linhas = await requisicao('pecas', {
+      const linhas = await requisicao(tabela, {
         method: 'POST',
         headers: { Prefer: 'return=representation' },
         body: JSON.stringify(dados),
@@ -68,7 +71,7 @@ async function supabase(): Promise<ArmazemPecas> {
       return linhas[0];
     },
     async atualizar(id, dados) {
-      const linhas = await requisicao(`pecas?id=eq.${id}`, {
+      const linhas = await requisicao(`${tabela}?id=eq.${id}`, {
         method: 'PATCH',
         headers: { Prefer: 'return=representation' },
         body: JSON.stringify(dados),
@@ -77,7 +80,7 @@ async function supabase(): Promise<ArmazemPecas> {
       return linhas[0];
     },
     async excluir(id) {
-      const linhas = await requisicao(`pecas?id=eq.${id}`, {
+      const linhas = await requisicao(`${tabela}?id=eq.${id}`, {
         method: 'DELETE',
         headers: { Prefer: 'return=representation' },
       });
@@ -90,12 +93,14 @@ async function supabase(): Promise<ArmazemPecas> {
 /* Navegador (localStorage)                                             */
 /* ==================================================================== */
 
-const CHAVE = 'manutencao-capricche-pecas-v1';
+// A primeira tabela mantém a chave antiga, para não perder o que já foi salvo.
+const chave = (tabela: TabelaPecas) =>
+  tabela === 'pecas' ? 'manutencao-capricche-pecas-v1' : `manutencao-capricche-${tabela}-v1`;
 type Salvo = { sequencia: number; itens: Peca[] };
 
-function ler(): Salvo {
+function ler(tabela: TabelaPecas): Salvo {
   try {
-    const bruto = localStorage.getItem(CHAVE);
+    const bruto = localStorage.getItem(chave(tabela));
     if (bruto) return JSON.parse(bruto) as Salvo;
   } catch {
     /* conteúdo corrompido: começa do zero */
@@ -103,51 +108,55 @@ function ler(): Salvo {
   return { sequencia: 0, itens: [] };
 }
 
-function gravar(salvo: Salvo) {
+function gravar(tabela: TabelaPecas, salvo: Salvo) {
   try {
-    localStorage.setItem(CHAVE, JSON.stringify(salvo));
+    localStorage.setItem(chave(tabela), JSON.stringify(salvo));
   } catch {
     throw new ErroApi('Não foi possível salvar. O armazenamento do navegador pode estar cheio.', 507);
   }
 }
 
-const navegador: ArmazemPecas = {
+const navegador = (tabela: TabelaPecas): ArmazemPecas => ({
   async listar() {
-    return ler().itens;
+    return ler(tabela).itens;
   },
   async inserir(dados) {
-    const salvo = ler();
+    const salvo = ler(tabela);
     const peca = { ativo: 1, ...dados, id: ++salvo.sequencia, criado_em: agora() } as Peca;
     salvo.itens.push(peca);
-    gravar(salvo);
+    gravar(tabela, salvo);
     return peca;
   },
   async atualizar(id, dados) {
-    const salvo = ler();
+    const salvo = ler(tabela);
     const alvo = salvo.itens.find((p) => p.id === id);
     if (!alvo) throw new ErroApi('Peça não encontrada', 404);
     Object.assign(alvo, dados);
-    gravar(salvo);
+    gravar(tabela, salvo);
     return alvo;
   },
   async excluir(id) {
-    const salvo = ler();
+    const salvo = ler(tabela);
     salvo.itens = salvo.itens.filter((p) => p.id !== id);
-    gravar(salvo);
+    gravar(tabela, salvo);
   },
-};
+});
 
 /* ==================================================================== */
 
-let armazem: Promise<ArmazemPecas> | null = null;
+const armazens = new Map<TabelaPecas, Promise<ArmazemPecas>>();
 
-export function armazemPecas(): Promise<ArmazemPecas> {
+export function armazemPecas(tabela: TabelaPecas): Promise<ArmazemPecas> {
   if (MODO_SERVIDOR) {
     return Promise.reject(
       new ErroApi('O estoque de peças funciona no modo Supabase ou navegador, não no modo servidor.', 501),
     );
   }
-  armazem ??= MODO_SUPABASE ? supabase() : Promise.resolve(navegador);
+  let armazem = armazens.get(tabela);
+  if (!armazem) {
+    armazem = MODO_SUPABASE ? supabase(tabela) : Promise.resolve(navegador(tabela));
+    armazens.set(tabela, armazem);
+  }
   return armazem;
 }
 
