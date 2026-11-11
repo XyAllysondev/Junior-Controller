@@ -136,6 +136,7 @@ export async function rotear(
         prioridade: corpo.prioridade ?? 'Media',
         status: fim ? 'Concluida' : atendido ? 'Em atendimento' : 'Aberta',
         descricao,
+        causa: corpo.causa ? String(corpo.causa).trim() : null,
         solucao: corpo.solucao ? String(corpo.solucao).trim() : null,
         parou_producao: corpo.parou_producao === 0 ? 0 : 1,
         aberto_em: aberto,
@@ -164,7 +165,7 @@ export async function rotear(
       for (const campo of ['maquina_id', 'motivo_id', 'tecnico_id', 'turno_id'] as const) {
         if (corpo[campo] !== undefined) mudancas[campo] = corpo[campo] ? Number(corpo[campo]) : null;
       }
-      for (const campo of ['tipo', 'prioridade', 'status', 'descricao', 'solucao'] as const) {
+      for (const campo of ['tipo', 'prioridade', 'status', 'descricao', 'causa', 'solucao'] as const) {
         if (corpo[campo] !== undefined) mudancas[campo] = corpo[campo];
       }
       if (corpo.parou_producao !== undefined) mudancas.parou_producao = Number(corpo.parou_producao);
@@ -221,6 +222,15 @@ export async function rotear(
         const erro = validarLinhaDoTempo(alvo.aberto_em, atendido, fim);
         if (erro) throw new ErroApi(erro, 400);
 
+        // FCA: parada de linha só encerra com causa e ação.
+        if (alvo.parou_producao === 1) {
+          const temCausa = String(corpo.causa ?? alvo.causa ?? '').trim();
+          const temAcao = String(corpo.solucao ?? alvo.solucao ?? '').trim();
+          if (!temCausa || !temAcao) {
+            throw new ErroApi('Parada de linha: preencha a Causa e a Ação para encerrar.', 400);
+          }
+        }
+
         const mudancas: Registro = {
           fim_em: fim,
           atendido_em: atendido,
@@ -230,6 +240,8 @@ export async function rotear(
         if (corpo.tecnico_id) mudancas.tecnico_id = Number(corpo.tecnico_id);
         const solucao = String(corpo.solucao ?? '').trim();
         if (solucao) mudancas.solucao = solucao;
+        const causa = String(corpo.causa ?? '').trim();
+        if (causa) mudancas.causa = causa;
 
         return enriquecer(banco, await armazem.atualizar('ocorrencias', id, mudancas));
       }

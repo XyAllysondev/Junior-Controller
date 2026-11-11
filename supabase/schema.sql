@@ -88,8 +88,9 @@ create table if not exists ocorrencias (
   status         text not null default 'Aberta'
                  check (status in ('Aberta','Em atendimento','Concluida','Cancelada')),
 
-  descricao      text not null,
-  solucao        text,
+  descricao      text not null,              -- F (Falha) nas paradas de linha
+  causa          text,                       -- C (Causa)
+  solucao        text,                       -- A (Acao)
   parou_producao smallint not null default 1,
 
   aberto_em      timestamp not null default (now() at time zone 'America/Sao_Paulo'),
@@ -99,6 +100,9 @@ create table if not exists ocorrencias (
   criado_em      timestamp not null default (now() at time zone 'America/Sao_Paulo'),
   atualizado_em  timestamp not null default (now() at time zone 'America/Sao_Paulo')
 );
+
+-- Bancos criados antes do FCA ganham a coluna aqui.
+alter table ocorrencias add column if not exists causa text;
 
 create index if not exists idx_ocorrencias_maquina  on ocorrencias(maquina_id);
 create index if not exists idx_ocorrencias_status   on ocorrencias(status);

@@ -190,6 +190,8 @@ export type Ocorrencia = {
   prioridade: Prioridade;
   status: StatusOcorrencia;
   descricao: string;
+  /** C do FCA (parada de linha). F = descricao, A = solucao. */
+  causa: string | null;
   solucao: string | null;
   parou_producao: number;
   aberto_em: string;

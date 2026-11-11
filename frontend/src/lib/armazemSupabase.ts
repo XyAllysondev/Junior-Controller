@@ -72,6 +72,13 @@ function traduzirErro(status: number, corpo: any): ErroApi {
       503,
     );
   }
+  if (codigo === 'PGRST204' || msg.includes('Could not find the')) {
+    return new ErroApi(
+      'O banco está desatualizado para este formulário. Abra o SQL Editor do Supabase e ' +
+        'rode o arquivo supabase/patch_fca.sql do repositório.',
+      503,
+    );
+  }
   if (codigo === '23505' || msg.includes('duplicate key')) {
     return new ErroApi('Já existe outro registro com esse nome/código.', 409);
   }

@@ -350,6 +350,11 @@ export function Ocorrencias() {
                         <p className="truncate font-medium text-slate-700 dark:text-slate-200" title={o.descricao}>
                           {o.descricao}
                         </p>
+                        {o.causa && (
+                          <p className="truncate text-xs text-slate-500 dark:text-slate-400" title={o.causa}>
+                            <span className="font-semibold">Causa:</span> {o.causa}
+                          </p>
+                        )}
                         <p className="mt-1 flex flex-wrap items-center gap-1.5">
                           <Etiqueta tom={TOM_TIPO[o.tipo]}>{o.tipo}</Etiqueta>
                           {o.motivo_nome && <Etiqueta>{o.motivo_nome}</Etiqueta>}
@@ -421,6 +426,11 @@ export function Ocorrencias() {
                   <div>
                     <p className="font-semibold text-slate-800 dark:text-slate-100">{o.maquina_nome}</p>
                     <p className="text-sm text-slate-600 dark:text-slate-300">{o.descricao}</p>
+                    {o.causa && (
+                      <p className="mt-0.5 text-xs text-slate-500 dark:text-slate-400">
+                        <span className="font-semibold">Causa:</span> {o.causa}
+                      </p>
+                    )}
                   </div>
                   <dl className="grid grid-cols-3 gap-2 rounded-xl bg-slate-50 p-3 text-center dark:bg-slate-800/60">
                     <div>
@@ -614,6 +624,8 @@ function ModalConcluir({
   const [fim, setFim] = useState('');
   const [atendido, setAtendido] = useState('');
   const [solucao, setSolucao] = useState('');
+  const [causa, setCausa] = useState('');
+  const [erroFca, setErroFca] = useState<string | null>(null);
   const [tecnico, setTecnico] = useState('');
   const [salvando, setSalvando] = useState(false);
 
@@ -624,17 +636,28 @@ function ModalConcluir({
     setFim(fmt.agoraInput());
     setAtendido(fmt.paraInput(ocorrencia.atendido_em) || fmt.paraInput(ocorrencia.aberto_em));
     setSolucao(ocorrencia.solucao ?? '');
+    setCausa(ocorrencia.causa ?? '');
+    setErroFca(null);
     setTecnico(ocorrencia.tecnico_id ? String(ocorrencia.tecnico_id) : '');
   }
 
+  // Parada de linha só encerra com o FCA completo (a Falha é a descrição).
+  const pedeFca = ocorrencia?.parou_producao === 1;
+
   async function enviar() {
     if (!ocorrencia) return;
+    if (pedeFca && (!causa.trim() || !solucao.trim())) {
+      setErroFca('Parada de linha: preencha a Causa e a Ação para liberar a máquina.');
+      return;
+    }
+    setErroFca(null);
     setSalvando(true);
     try {
       await api.post(`/ocorrencias/${ocorrencia.id}/concluir`, {
         fim_em: fim,
         atendido_em: atendido || null,
         solucao: solucao.trim() || null,
+        causa: causa.trim() || null,
         tecnico_id: tecnico || null,
       });
       avisar(`Chamado da ${ocorrencia.maquina_codigo} encerrado.`);
@@ -726,16 +749,49 @@ function ModalConcluir({
           )}
         </Campo>
 
-        <Campo rotulo="O que foi feito" dica="Fica registrado no histórico da máquina.">
-          {(id) => (
-            <AreaTexto
-              id={id}
-              value={solucao}
-              onChange={(e) => setSolucao(e.target.value)}
-              placeholder="Ex.: correia substituída e tensionamento ajustado"
-            />
-          )}
-        </Campo>
+        {pedeFca ? (
+          <fieldset className="space-y-4 rounded-xl border border-marca-200 bg-marca-50/40 p-4 dark:border-marca-500/30 dark:bg-marca-500/5">
+            <legend className="px-1 text-xs font-bold tracking-wide text-marca-700 uppercase dark:text-marca-300">
+              FCA da parada de linha
+            </legend>
+            {erroFca && <Alerta>{erroFca}</Alerta>}
+            <div className="text-sm">
+              <span className="font-semibold text-slate-700 dark:text-slate-200">F · Falha: </span>
+              <span className="text-slate-600 dark:text-slate-300">{ocorrencia?.descricao}</span>
+            </div>
+            <Campo rotulo="C · Causa" obrigatorio dica="Por que aconteceu.">
+              {(id) => (
+                <AreaTexto
+                  id={id}
+                  value={causa}
+                  onChange={(e) => setCausa(e.target.value)}
+                  placeholder="Ex.: correia ressecada, fora do prazo de troca"
+                />
+              )}
+            </Campo>
+            <Campo rotulo="A · Ação" obrigatorio dica="O que foi feito para resolver.">
+              {(id) => (
+                <AreaTexto
+                  id={id}
+                  value={solucao}
+                  onChange={(e) => setSolucao(e.target.value)}
+                  placeholder="Ex.: correia substituída e tensionamento ajustado"
+                />
+              )}
+            </Campo>
+          </fieldset>
+        ) : (
+          <Campo rotulo="O que foi feito" dica="Fica registrado no histórico da máquina.">
+            {(id) => (
+              <AreaTexto
+                id={id}
+                value={solucao}
+                onChange={(e) => setSolucao(e.target.value)}
+                placeholder="Ex.: correia substituída e tensionamento ajustado"
+              />
+            )}
+          </Campo>
+        )}
       </div>
     </Modal>
   );

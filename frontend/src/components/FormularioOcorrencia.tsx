@@ -78,6 +78,7 @@ type Formulario = {
   tipo: TipoManutencao;
   prioridade: Prioridade;
   descricao: string;
+  causa: string;
   solucao: string;
   parou_producao: boolean;
   aberto_em: string;
@@ -92,6 +93,7 @@ const vazio = (): Formulario => ({
   tipo: 'Corretiva',
   prioridade: 'Media',
   descricao: '',
+  causa: '',
   solucao: '',
   parou_producao: true,
   aberto_em: agoraInput(),
@@ -106,6 +108,7 @@ const doRegistro = (o: Ocorrencia): Formulario => ({
   tipo: o.tipo,
   prioridade: o.prioridade,
   descricao: o.descricao,
+  causa: o.causa ?? '',
   solucao: o.solucao ?? '',
   parou_producao: o.parou_producao === 1,
   aberto_em: paraInput(o.aberto_em),
@@ -156,7 +159,14 @@ export function FormularioOcorrencia({
     const novos: Record<string, string> = {};
     if (!form.maquina_id) novos.maquina_id = 'Escolha a máquina que parou.';
     if (form.descricao.trim().length < 3)
-      novos.descricao = 'Escreva pelo menos algumas palavras sobre o que aconteceu.';
+      novos.descricao = form.parou_producao
+        ? 'Descreva a falha: o que aconteceu com a linha.'
+        : 'Escreva pelo menos algumas palavras sobre o que aconteceu.';
+    // FCA: na parada de linha, causa e ação são obrigatórias para encerrar.
+    if (form.parou_producao && form.fim_em) {
+      if (!form.causa.trim()) novos.causa = 'Informe a causa para encerrar uma parada de linha.';
+      if (!form.solucao.trim()) novos.solucao = 'Informe a ação tomada para encerrar uma parada de linha.';
+    }
     if (!form.aberto_em) novos.aberto_em = 'Informe quando o chamado foi aberto.';
     if (form.atendido_em && form.aberto_em && form.atendido_em < form.aberto_em)
       novos.atendido_em = 'O atendimento não pode começar antes da abertura.';
@@ -180,6 +190,7 @@ export function FormularioOcorrencia({
       tipo: form.tipo,
       prioridade: form.prioridade,
       descricao: form.descricao.trim(),
+      causa: form.causa.trim() || null,
       solucao: form.solucao.trim() || null,
       parou_producao: form.parou_producao ? 1 : 0,
       aberto_em: form.aberto_em,
@@ -307,18 +318,6 @@ export function FormularioOcorrencia({
             }
           />
 
-          <Campo rotulo="Descrição" obrigatorio erro={erros.descricao}>
-            {(id) => (
-              <AreaTexto
-                id={id}
-                value={form.descricao}
-                onChange={(e) => definir('descricao', e.target.value)}
-                placeholder="Ex.: máquina parou no meio do ciclo, com ruído no motor principal"
-                aria-invalid={Boolean(erros.descricao)}
-              />
-            )}
-          </Campo>
-
           <label className="flex cursor-pointer items-start gap-3 rounded-xl border border-slate-200 p-3.5 transition-colors hover:bg-slate-50 dark:border-slate-700 dark:hover:bg-slate-800/60">
             <input
               type="checkbox"
@@ -328,14 +327,75 @@ export function FormularioOcorrencia({
             />
             <span>
               <span className="block text-sm font-semibold text-slate-800 dark:text-slate-100">
-                A produção ficou parada
+                Houve parada de linha?
               </span>
               <span className="block text-xs text-slate-500 dark:text-slate-400">
-                Desmarque para intervenções feitas com a máquina rodando ou fora do turno — elas não
-                entram no cálculo de disponibilidade.
+                Marcado, pede o FCA (Falha, Causa, Ação) e entra no cálculo de disponibilidade.
+                Desmarque para intervenções com a linha rodando ou fora do turno.
               </span>
             </span>
           </label>
+
+          {form.parou_producao ? (
+            <fieldset className="space-y-4 rounded-xl border border-marca-200 bg-marca-50/40 p-4 dark:border-marca-500/30 dark:bg-marca-500/5">
+              <legend className="px-1 text-xs font-bold tracking-wide text-marca-700 uppercase dark:text-marca-300">
+                FCA da parada de linha
+              </legend>
+              <p className="text-xs text-slate-500 dark:text-slate-400">
+                A <strong>falha</strong> é obrigatória já na abertura. <strong>Causa</strong> e{' '}
+                <strong>ação</strong> podem ser preenchidas depois, mas são obrigatórias para
+                encerrar o chamado.
+              </p>
+
+              <Campo rotulo="F · Falha" obrigatorio erro={erros.descricao} dica="O que aconteceu.">
+                {(id) => (
+                  <AreaTexto
+                    id={id}
+                    value={form.descricao}
+                    onChange={(e) => definir('descricao', e.target.value)}
+                    placeholder="Ex.: esteira parou no meio do ciclo, com ruído no motor principal"
+                    aria-invalid={Boolean(erros.descricao)}
+                  />
+                )}
+              </Campo>
+
+              <Campo rotulo="C · Causa" erro={erros.causa} dica="Por que aconteceu.">
+                {(id) => (
+                  <AreaTexto
+                    id={id}
+                    value={form.causa}
+                    onChange={(e) => definir('causa', e.target.value)}
+                    placeholder="Ex.: rolamento do motor travado por falta de lubrificação"
+                    aria-invalid={Boolean(erros.causa)}
+                  />
+                )}
+              </Campo>
+
+              <Campo rotulo="A · Ação" erro={erros.solucao} dica="O que foi feito para resolver.">
+                {(id) => (
+                  <AreaTexto
+                    id={id}
+                    value={form.solucao}
+                    onChange={(e) => definir('solucao', e.target.value)}
+                    placeholder="Ex.: rolamento substituído e plano de lubrificação ajustado"
+                    aria-invalid={Boolean(erros.solucao)}
+                  />
+                )}
+              </Campo>
+            </fieldset>
+          ) : (
+            <Campo rotulo="Descrição" obrigatorio erro={erros.descricao}>
+              {(id) => (
+                <AreaTexto
+                  id={id}
+                  value={form.descricao}
+                  onChange={(e) => definir('descricao', e.target.value)}
+                  placeholder="Ex.: máquina parou no meio do ciclo, com ruído no motor principal"
+                  aria-invalid={Boolean(erros.descricao)}
+                />
+              )}
+            </Campo>
+          )}
         </div>
 
         {/* ---------------- Tempos ---------------- */}
@@ -409,17 +469,19 @@ export function FormularioOcorrencia({
               )}
             </Campo>
 
-            <Campo rotulo="O que foi feito" dica="Preencha ao encerrar o chamado.">
-              {(id) => (
-                <AreaTexto
-                  id={id}
-                  value={form.solucao}
-                  onChange={(e) => definir('solucao', e.target.value)}
-                  placeholder="Ex.: rolamento substituído e alinhamento refeito"
-                  className="min-h-11"
-                />
-              )}
-            </Campo>
+            {!form.parou_producao && (
+              <Campo rotulo="O que foi feito" dica="Preencha ao encerrar o chamado.">
+                {(id) => (
+                  <AreaTexto
+                    id={id}
+                    value={form.solucao}
+                    onChange={(e) => definir('solucao', e.target.value)}
+                    placeholder="Ex.: rolamento substituído e alinhamento refeito"
+                    className="min-h-11"
+                  />
+                )}
+              </Campo>
+            )}
           </div>
         </div>
       </form>

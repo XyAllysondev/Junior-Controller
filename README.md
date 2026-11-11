@@ -136,7 +136,10 @@ aberto_em ──── TA ────► atendido_em ──── reparo ──
   `horas_dia` vale 24 por padrão; passe `?horas_dia=16` na API para fábricas de 2 turnos.
 - **MTBF** = `horas operando / número de corretivas`.
 
-Só entram no cálculo de horas paradas as ocorrências com **"A produção ficou parada"** marcado.
+Só entram no cálculo de horas paradas as ocorrências com **"Houve parada de linha?"** marcado.
+Nelas o formulário pede o **FCA**: **F**alha (a descrição), **C**ausa e **A**ção (o que foi feito).
+A falha é obrigatória na abertura; causa e ação, para encerrar o chamado. Em bancos Supabase
+criados antes disso, rode [`supabase/patch_fca.sql`](supabase/patch_fca.sql) uma vez.
 
 ---
 

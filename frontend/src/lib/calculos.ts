@@ -315,7 +315,7 @@ export function listarOcorrencias(banco: Banco, p: Params) {
     if (ate && soData(o.aberto_em) > ate) return false;
     if (somenteAbertas && o.status !== 'Aberta' && o.status !== 'Em atendimento') return false;
     if (busca) {
-      const alvo = [o.descricao, o.solucao, o.maquina_nome, o.maquina_codigo]
+      const alvo = [o.descricao, o.causa, o.solucao, o.maquina_nome, o.maquina_codigo]
         .filter(Boolean)
         .join(' ')
         .toLowerCase();
